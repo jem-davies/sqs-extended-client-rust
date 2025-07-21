@@ -67,7 +67,7 @@ impl SqsExtendedClientBuilder {
         }
     }
 
-    pub fn with_logger(mut self) -> SqsExtendedClientBuilder {
+    pub fn with_logger(self) -> SqsExtendedClientBuilder {
         panic!("NOT IMPLEMENTED");
     }
 
@@ -131,14 +131,85 @@ impl SqsExtendedClientBuilder {
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
+#[cfg(test)]
+mod tests {
+    use aws_config::BehaviorVersion;
 
-//     #[test]
-//     fn test_with_s3_bucket_name() {
-//         let s3_client_mock
-//         let sqs_client_mock
-//         let sqs_extended_client: SqsExtendedClient = SqsExtendedClientBuilder::new()
-//     }
-// }
+    use super::*;
+
+    fn make_test_credentials() -> aws_sdk_s3::config::Credentials {
+        aws_sdk_s3::config::Credentials::new(
+            "TEST_ACCESS_KEY_ID",
+            "TEST_SECRET_ACCESS_KEY",
+            Some("TEST_SESSION_TOKEN".to_string()),
+            None,
+            "",
+        )
+    }
+
+    fn make_test_s3_client() -> aws_sdk_s3::client::Client {
+        aws_sdk_s3::Client::from_conf(
+            aws_sdk_s3::Config::builder()
+                .behavior_version(BehaviorVersion::latest())
+                .credentials_provider(make_test_credentials())
+                .build(),
+        )
+    }
+
+    fn make_test_sqs_client() -> aws_sdk_sqs::client::Client {
+        aws_sdk_sqs::Client::from_conf(
+            aws_sdk_sqs::Config::builder()
+                .behavior_version(BehaviorVersion::latest())
+                .credentials_provider(make_test_credentials())
+                .build(),
+        )
+    }
+
+    #[test]
+    fn test_builder_fns() {
+        let sqs_extended_client: SqsExtendedClient =
+            SqsExtendedClientBuilder::new(make_test_s3_client(), make_test_sqs_client())
+                .with_s3_bucket_name("bucket-name".to_string())
+                .with_message_size_threshold(9999)
+                .with_batch_message_size_threshold(1000)
+                .with_always_through_s3(true)
+                .with_reserved_attribute_names(vec!["attr_one".to_string(), "attr_two".to_string()])
+                .with_pointer_class("pointer-class".to_string())
+                .with_object_prefix("object-prefix".to_string())
+                .build();
+
+        assert_eq!("bucket-name", sqs_extended_client.bucket_name);
+        assert_eq!(9999, sqs_extended_client.message_size_threshold);
+        assert_eq!(1000, sqs_extended_client.batch_messages_size_threshold);
+        assert_eq!(true, sqs_extended_client.always_through_s3);
+        assert_eq!(
+            vec!["attr_one".to_string(), "attr_two".to_string()],
+            sqs_extended_client.reserved_attributes
+        );
+        assert_eq!("pointer-class", sqs_extended_client.pointer_class);
+        assert_eq!("object-prefix", sqs_extended_client.object_prefix);
+    }
+
+    #[test]
+    fn test_builder_defaults() {
+        let sqs_extended_client: SqsExtendedClient =
+            SqsExtendedClientBuilder::new(make_test_s3_client(), make_test_sqs_client()).build();
+
+        assert_eq!("", sqs_extended_client.bucket_name);
+        assert_eq!(
+            MAX_MESSAGE_SIZE_IN_BYTES,
+            sqs_extended_client.message_size_threshold
+        );
+        assert_eq!(
+            MAX_MESSAGE_SIZE_IN_BYTES,
+            sqs_extended_client.batch_messages_size_threshold
+        );
+        assert_eq!(false, sqs_extended_client.always_through_s3);
+        assert_eq!(
+            Vec::<String>::new(),
+            sqs_extended_client.reserved_attributes
+        );
+        assert_eq!(DEFAULT_POINTER_CLASS, sqs_extended_client.pointer_class);
+        assert_eq!("", sqs_extended_client.object_prefix);
+    }
+}
