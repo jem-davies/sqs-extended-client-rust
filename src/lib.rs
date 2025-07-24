@@ -11,22 +11,23 @@ use aws_smithy_runtime_api::client::result::SdkError;
 use aws_smithy_types::byte_stream::ByteStream;
 use uuid::Uuid;
 
-const MAX_MESSAGE_SIZE_IN_BYTES: usize = 262144; // TODO - why is this a u64 when it's a literal const of 262,144?
-static DEFAULT_POINTER_CLASS: &str = "software.amazon.payloadoffloading.PayloadS3Pointer"; // TODO - should this be a static? 
+const MAX_MESSAGE_SIZE_IN_BYTES: usize = 262144;
+static DEFAULT_POINTER_CLASS: &str = "software.amazon.payloadoffloading.PayloadS3Pointer";
+static LEGACY_RESERVED_ATTRIBUTE_NAME: &str = "SQSLargePayloadSize";
 
 pub struct SqsExtendedClient {
-    s3_client: aws_sdk_s3::Client,   //
-    sqs_client: aws_sdk_sqs::Client, //
+    s3_client: aws_sdk_s3::Client,
+    sqs_client: aws_sdk_sqs::Client,
     // logger here in Go implementation
-    bucket_name: String,                  //
-    message_size_threshold: usize,        //
-    batch_messages_size_threshold: usize, //
-    always_through_s3: bool,              //
-    pointer_class: String,                //
-    reserved_attributes: Vec<String>,     //
-    object_prefix: String,                //
-    base_s3_pointer_size: usize, // TODO usize -> what should the default size golang's int be?
-    base_attribute_size: usize,  // TODO int -> what should the default size golang's int be?
+    bucket_name: String,
+    message_size_threshold: usize,
+    batch_messages_size_threshold: usize,
+    always_through_s3: bool,
+    pointer_class: String,
+    reserved_attributes: Vec<String>,
+    object_prefix: String,
+    base_s3_pointer_size: usize,
+    base_attribute_size: usize,
 }
 
 impl SqsExtendedClient {
@@ -48,50 +49,62 @@ impl SqsExtendedClient {
 
         if self.always_through_s3
             || self.message_exceeds_threshold(
-                msg_input.get_message_body().clone(), // TODO remove the clone here - send by reference!
-                msg_input.get_message_attributes().clone(), // TODO remove the clone here - send by reference!
+                &msg_input.get_message_body(),
+                &msg_input.get_message_attributes(),
             )
         {
-            // generate s3 object key
-            let s3_key: String = Uuid::new_v4().to_string(); // TODO add prefix
+            // TODO refactor this block
+            let s3_key: String = self.s3_key(Uuid::new_v4().to_string());
 
-            // upload large payload to s3
             let _ = self
                 .s3_client
                 .put_object()
-                .bucket(self.bucket_name.clone())
-                .key(s3_key.clone())
+                .bucket(&self.bucket_name)
+                .key(&s3_key)
                 .body(self.convert_string_byte_stream(msg_input.get_message_body().clone()))
                 .send()
                 .await;
 
-            // create an s3 pointer that will be uploaded to SQS in place of the large payload
             let new_msg: S3Pointer = S3Pointer {
                 s3_bucket_name: self.bucket_name.clone(),
                 s3_key: s3_key,
                 class: self.pointer_class.clone(),
             };
 
-            // copy over all attributes, leaving space for our reserved attribute
+            let xxx = &msg_input.get_message_body();
+            let ss: usize;
+            match xxx {
+                // TODO can this be a if let?
+                None => panic!(), // TODO error handling
+                Some(string) => {
+                    ss = string.len();
+                }
+            }
 
-            // assign the reserved attribute to a number containing the size of the original body
+            let reserved_attribute = MessageAttributeValue::builder()
+                .data_type("Number")
+                .string_value(ss.to_string())
+                .build()
+                .expect("Failed to build MessageAttributeValue");
 
-            // override attributes and body in the original message (make a copy)
-            msg_input.message_body(new_msg.marshall_json()).send().await
+            msg_input
+                .message_body(new_msg.marshall_json())
+                .message_attributes(self.reserved_attributes[0].clone(), reserved_attribute)
+                .send()
+                .await
         } else {
             msg_input.send().await
         }
     }
 
-    pub fn receive_message(&self) -> String {
-        // TODO implement
-        "base_s3_pointer_size: ".to_string() + &self.base_s3_pointer_size.to_string()
+    pub fn receive_message(&self) {
+        panic!("NOT IMPLEMENTED");
     }
 
     fn message_exceeds_threshold(
         &self,
-        body: Option<String>,
-        attributes: Option<HashMap<String, MessageAttributeValue>>,
+        body: &Option<String>,
+        attributes: &Option<HashMap<String, MessageAttributeValue>>,
     ) -> bool {
         match body {
             None => false, // TODO -> error return
@@ -101,8 +114,8 @@ impl SqsExtendedClient {
 
     fn message_size(
         &self,
-        body: String,
-        attributes: Option<HashMap<String, MessageAttributeValue>>,
+        body: &String,
+        attributes: &Option<HashMap<String, MessageAttributeValue>>,
     ) -> MessageSize {
         MessageSize {
             body_size: body.len(),
@@ -110,22 +123,44 @@ impl SqsExtendedClient {
         }
     }
 
-    fn attribute_size(&self, attributes: Option<HashMap<String, MessageAttributeValue>>) -> usize {
+    fn attribute_size(&self, attributes: &Option<HashMap<String, MessageAttributeValue>>) -> usize {
         match attributes {
-            None => return 0,
-            Some(hash_map) => return self.calc_attribute_size(hash_map),
+            None => 0,
+            Some(hash_map) => self.calc_attribute_size(hash_map),
         }
     }
 
-    fn calc_attribute_size(&self, attributes: HashMap<String, MessageAttributeValue>) -> usize {
-        88
+    fn calc_attribute_size(&self, attributes: &HashMap<String, MessageAttributeValue>) -> usize {
+        let mut sum: usize = 0;
+        for (k, v) in attributes {
+            sum = sum + k.len();
+            match &v.binary_value {
+                None => {}
+                Some(blob) => {
+                    sum = sum + blob.clone().into_inner().len();
+                }
+            }
+            match &v.string_value {
+                None => {}
+                Some(string) => sum = string.len(),
+            }
+            sum = sum + v.data_type.len();
+        }
+        sum
     }
 
     fn convert_string_byte_stream(&self, s: Option<String>) -> ByteStream {
         match s {
-            None => panic!("HHENOCKE"),
+            None => panic!("HHENOCKE"), // TODO error handling
             Some(s) => ByteStream::from(s.into_bytes()),
         }
+    }
+
+    fn s3_key(&self, filename: String) -> String {
+        if self.object_prefix != "" {
+            return format!("{}/{}", self.object_prefix, filename);
+        }
+        filename
     }
 }
 
@@ -154,7 +189,10 @@ impl SqsExtendedClientBuilder {
             batch_message_size_threshold: MAX_MESSAGE_SIZE_IN_BYTES,
             always_s3: false,
             pointer_class: DEFAULT_POINTER_CLASS.to_string(),
-            reserved_attributes: Vec::new(),
+            reserved_attributes: vec![
+                "ExtendedPayloadSize".to_string(),
+                LEGACY_RESERVED_ATTRIBUTE_NAME.to_string(),
+            ],
             object_prefix: "".to_string(),
         }
     }
@@ -211,7 +249,8 @@ impl SqsExtendedClientBuilder {
             class: self.pointer_class.clone(),
         };
 
-        // TODO base_attribute_size
+        let base_attribute_size: usize =
+            self.reserved_attributes[0].len() + "Number".to_string().len();
 
         SqsExtendedClient {
             s3_client: self.s3_client,
@@ -224,7 +263,7 @@ impl SqsExtendedClientBuilder {
             reserved_attributes: self.reserved_attributes,
             object_prefix: self.object_prefix,
             base_s3_pointer_size: ptr.marshall_json().len(),
-            base_attribute_size: 0,
+            base_attribute_size: base_attribute_size,
         }
     }
 }
@@ -319,6 +358,7 @@ mod tests {
         assert_eq!("pointer-class", sqs_extended_client.pointer_class);
         assert_eq!("object-prefix", sqs_extended_client.object_prefix);
         assert_eq!(84, sqs_extended_client.base_s3_pointer_size);
+        assert_eq!(14, sqs_extended_client.base_attribute_size);
     }
 
     #[test]
@@ -337,11 +377,15 @@ mod tests {
         );
         assert_eq!(false, sqs_extended_client.always_through_s3);
         assert_eq!(
-            Vec::<String>::new(),
+            vec![
+                "ExtendedPayloadSize".to_string(),
+                LEGACY_RESERVED_ATTRIBUTE_NAME.to_string(),
+            ],
             sqs_extended_client.reserved_attributes
         );
         assert_eq!(DEFAULT_POINTER_CLASS, sqs_extended_client.pointer_class);
         assert_eq!("", sqs_extended_client.object_prefix);
         assert_eq!(121, sqs_extended_client.base_s3_pointer_size);
+        assert_eq!(25, sqs_extended_client.base_attribute_size);
     }
 }

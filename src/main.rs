@@ -1,6 +1,6 @@
 use aws_config::BehaviorVersion;
 use aws_sdk_sqs::operation::send_message::builders::SendMessageFluentBuilder;
-use sqs_extended_client_rust::{SqsExtendedClient, SqsExtendedClientBuilder};
+use sqs_extended_client::{SqsExtendedClient, SqsExtendedClientBuilder};
 
 #[::tokio::main]
 async fn main() -> Result<(), aws_sdk_sqs::Error> {
@@ -15,13 +15,13 @@ async fn main() -> Result<(), aws_sdk_sqs::Error> {
         SqsExtendedClientBuilder::new(s3_client, sqs_client)
             .with_s3_bucket_name("".to_string())
             .with_always_through_s3(false)
-            .with_message_size_threshold(200000)
+            //.with_message_size_threshold(2)
             .build();
 
     let msg_input: SendMessageFluentBuilder = clone_sqs_client
         .send_message()
         .queue_url("")
-        .message_body("HELLO SQS FROM RUST! :)");
+        .message_body("HELLO SQS FROM RUST! :) - 9696");
 
     println!("{}", "HELLO FROM MAIN");
 
