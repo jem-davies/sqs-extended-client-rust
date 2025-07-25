@@ -31,13 +31,6 @@ pub struct SqsExtendedClient {
 }
 
 impl SqsExtendedClient {
-    pub fn builder(
-        s3_client: aws_sdk_s3::Client,
-        sqs_client: aws_sdk_sqs::Client,
-    ) -> SqsExtendedClientBuilder {
-        SqsExtendedClientBuilder::new(s3_client, sqs_client)
-    }
-
     pub async fn send_message(
         &self,
         msg_input: SendMessageFluentBuilder,
@@ -134,15 +127,17 @@ impl SqsExtendedClient {
         let mut sum: usize = 0;
         for (k, v) in attributes {
             sum = sum + k.len();
+            print!("sum + k.len(): {}", sum);
+
             match &v.binary_value {
                 None => {}
                 Some(blob) => {
-                    sum = sum + blob.clone().into_inner().len();
+                    sum = sum + blob.as_ref().len();
                 }
             }
             match &v.string_value {
                 None => {}
-                Some(string) => sum = string.len(),
+                Some(string) => sum = sum + string.len(),
             }
             sum = sum + v.data_type.len();
         }
@@ -387,5 +382,45 @@ mod tests {
         assert_eq!("", sqs_extended_client.object_prefix);
         assert_eq!(121, sqs_extended_client.base_s3_pointer_size);
         assert_eq!(25, sqs_extended_client.base_attribute_size);
+    }
+
+    #[test]
+    fn test_calc_attribute_size() {
+        let sqs_extended_client: SqsExtendedClient =
+            SqsExtendedClientBuilder::new(make_test_s3_client(), make_test_sqs_client()).build();
+
+        let reserved_attribute = MessageAttributeValue::builder()
+            .data_type(String::from("String"))
+            .string_value(String::from("some string"))
+            .build()
+            .expect("Failed to build MessageAttributeValue");
+
+        let mut hm: HashMap<String, MessageAttributeValue> = HashMap::new();
+        hm.insert(String::from("testing_strings"), reserved_attribute);
+
+        assert_eq!(32, sqs_extended_client.calc_attribute_size(&hm))
+    }
+
+    #[test]
+    fn test_s3_key() {
+        let sqs_extended_client_no_prefix: SqsExtendedClient =
+            SqsExtendedClientBuilder::new(make_test_s3_client(), make_test_sqs_client()).build();
+
+        assert_eq!(
+            String::from("00000000-0000-0000-0000-000000000000"),
+            sqs_extended_client_no_prefix
+                .s3_key(String::from("00000000-0000-0000-0000-000000000000"))
+        );
+
+        let sqs_extended_client_with_prefix: SqsExtendedClient =
+            SqsExtendedClientBuilder::new(make_test_s3_client(), make_test_sqs_client())
+                .with_object_prefix(String::from("some_prefix"))
+                .build();
+
+        assert_eq!(
+            String::from("some_prefix/00000000-0000-0000-0000-000000000000"),
+            sqs_extended_client_with_prefix
+                .s3_key(String::from("00000000-0000-0000-0000-000000000000"))
+        )
     }
 }
