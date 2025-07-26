@@ -1,7 +1,9 @@
 use core::panic;
 use std::collections::HashMap;
+use std::fmt;
 
 use aws_sdk_s3;
+use aws_sdk_s3::operation::put_object::{PutObjectError, PutObjectOutput};
 use aws_sdk_sqs;
 use aws_sdk_sqs::operation::send_message::builders::SendMessageFluentBuilder;
 use aws_sdk_sqs::operation::send_message::{SendMessageError, SendMessageOutput};
@@ -19,7 +21,7 @@ pub struct SqsExtendedClient {
     s3_client: aws_sdk_s3::Client,
     sqs_client: aws_sdk_sqs::Client,
     // logger here in Go implementation
-    bucket_name: String,
+    bucket_name: Option<String>,
     message_size_threshold: usize,
     batch_messages_size_threshold: usize,
     always_through_s3: bool,
@@ -34,49 +36,48 @@ impl SqsExtendedClient {
     pub async fn send_message(
         &self,
         msg_input: SendMessageFluentBuilder,
-    ) -> Result<SendMessageOutput, SdkError<SendMessageError, HttpResponse>> {
-        println!("{}", "Sending message!");
-        if self.bucket_name == "" {
-            panic!("you gotta set bucket_name for send message bro")
+    ) -> Result<SendMessageOutput, SqsExtendedClientError> {
+        let bucket_name: String;
+        match &self.bucket_name {
+            None => return Err(SqsExtendedClientError::NoBucketName),
+            Some(bn) => bucket_name = bn.to_string(),
         }
 
-        if self.always_through_s3
-            || self.message_exceeds_threshold(
-                &msg_input.get_message_body(),
-                &msg_input.get_message_attributes(),
-            )
+        let message_body: &str;
+        match msg_input.get_message_body() {
+            None => return Err(SqsExtendedClientError::NoMessageBody),
+            Some(msg_bdy) => message_body = msg_bdy,
+        }
+
+        let result = if self.always_through_s3
+            || self.message_exceeds_threshold(message_body, &msg_input.get_message_attributes())
         {
-            // TODO refactor this block
             let s3_key: String = self.s3_key(Uuid::new_v4().to_string());
 
-            let _ = self
+            let s3_result: Result<PutObjectOutput, SdkError<PutObjectError, HttpResponse>> = self
                 .s3_client
                 .put_object()
-                .bucket(&self.bucket_name)
+                .bucket(&bucket_name)
                 .key(&s3_key)
-                .body(self.convert_string_byte_stream(msg_input.get_message_body().clone()))
+                .body(self.convert_string_byte_stream(message_body))
                 .send()
                 .await;
 
+            if let Err(s3_error) = s3_result {
+                return Err(SqsExtendedClientError::S3Upload(s3_error));
+            }
+
             let new_msg: S3Pointer = S3Pointer {
-                s3_bucket_name: self.bucket_name.clone(),
+                s3_bucket_name: bucket_name,
                 s3_key: s3_key,
                 class: self.pointer_class.clone(),
             };
 
-            let xxx = &msg_input.get_message_body();
-            let ss: usize;
-            match xxx {
-                // TODO can this be a if let?
-                None => panic!(), // TODO error handling
-                Some(string) => {
-                    ss = string.len();
-                }
-            }
+            let message_body_size: usize = message_body.len();
 
             let reserved_attribute = MessageAttributeValue::builder()
                 .data_type("Number")
-                .string_value(ss.to_string())
+                .string_value(message_body_size.to_string())
                 .build()
                 .expect("Failed to build MessageAttributeValue");
 
@@ -87,7 +88,9 @@ impl SqsExtendedClient {
                 .await
         } else {
             msg_input.send().await
-        }
+        };
+
+        result.map_err(|sqs_error| SqsExtendedClientError::SqsSendMessage(sqs_error))
     }
 
     pub fn receive_message(&self) {
@@ -96,18 +99,15 @@ impl SqsExtendedClient {
 
     fn message_exceeds_threshold(
         &self,
-        body: &Option<String>,
+        body: &str,
         attributes: &Option<HashMap<String, MessageAttributeValue>>,
     ) -> bool {
-        match body {
-            None => false, // TODO -> error return
-            Some(b) => self.message_size(b, attributes).total() > self.message_size_threshold,
-        }
+        self.message_size(body, attributes).total() > self.message_size_threshold
     }
 
     fn message_size(
         &self,
-        body: &String,
+        body: &str,
         attributes: &Option<HashMap<String, MessageAttributeValue>>,
     ) -> MessageSize {
         MessageSize {
@@ -127,7 +127,6 @@ impl SqsExtendedClient {
         let mut sum: usize = 0;
         for (k, v) in attributes {
             sum = sum + k.len();
-            print!("sum + k.len(): {}", sum);
 
             match &v.binary_value {
                 None => {}
@@ -144,11 +143,8 @@ impl SqsExtendedClient {
         sum
     }
 
-    fn convert_string_byte_stream(&self, s: Option<String>) -> ByteStream {
-        match s {
-            None => panic!("HHENOCKE"), // TODO error handling
-            Some(s) => ByteStream::from(s.into_bytes()),
-        }
+    fn convert_string_byte_stream(&self, s: &str) -> ByteStream {
+        ByteStream::from(s.as_bytes().to_vec())
     }
 
     fn s3_key(&self, filename: String) -> String {
@@ -162,7 +158,7 @@ impl SqsExtendedClient {
 pub struct SqsExtendedClientBuilder {
     s3_client: aws_sdk_s3::Client,
     sqs_client: aws_sdk_sqs::Client,
-    bucket_name: String,
+    bucket_name: Option<String>,
     message_size_threshold: usize,
     batch_message_size_threshold: usize,
     always_s3: bool,
@@ -179,7 +175,7 @@ impl SqsExtendedClientBuilder {
         SqsExtendedClientBuilder {
             s3_client,
             sqs_client,
-            bucket_name: "".to_string(),
+            bucket_name: None,
             message_size_threshold: MAX_MESSAGE_SIZE_IN_BYTES,
             batch_message_size_threshold: MAX_MESSAGE_SIZE_IN_BYTES,
             always_s3: false,
@@ -197,7 +193,7 @@ impl SqsExtendedClientBuilder {
     }
 
     pub fn with_s3_bucket_name(mut self, bucket_name: String) -> SqsExtendedClientBuilder {
-        self.bucket_name = bucket_name;
+        self.bucket_name = Some(bucket_name);
         self
     }
 
@@ -239,7 +235,7 @@ impl SqsExtendedClientBuilder {
 
     pub fn build(self) -> SqsExtendedClient {
         let ptr: S3Pointer = S3Pointer {
-            s3_bucket_name: String::from(""), // bucket name is blank here
+            s3_bucket_name: String::from(""),
             s3_key: Uuid::new_v4().to_string(),
             class: self.pointer_class.clone(),
         };
@@ -295,6 +291,28 @@ impl MessageSize {
 
 //------------------------------------------------------------------------------
 
+#[derive(Debug)]
+pub enum SqsExtendedClientError {
+    S3Upload(SdkError<PutObjectError, HttpResponse>),
+    SqsSendMessage(SdkError<SendMessageError, HttpResponse>),
+    NoBucketName,
+    NoMessageBody,
+}
+
+impl fmt::Display for SqsExtendedClientError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::S3Upload(err) => write!(f, "S3 upload failed: {}", err),
+            Self::SqsSendMessage(err) => write!(f, "SQS operation failed: {}", err),
+            Self::NoBucketName => write!(f, "No bucket name configured"),
+            Self::NoMessageBody => write!(f, "No message body provided"),
+        }
+    }
+}
+
+impl std::error::Error for SqsExtendedClientError {}
+//------------------------------------------------------------------------------
+
 #[cfg(test)]
 mod tests {
     use aws_config::BehaviorVersion;
@@ -342,7 +360,17 @@ mod tests {
                 .with_object_prefix("object-prefix".to_string())
                 .build();
 
-        assert_eq!("bucket-name", sqs_extended_client.bucket_name);
+        let bucket_name: String;
+        match sqs_extended_client.bucket_name {
+            None => {
+                bucket_name = String::from("");
+            }
+            Some(bn) => {
+                bucket_name = bn;
+            }
+        }
+
+        assert_eq!("bucket-name", bucket_name);
         assert_eq!(9999, sqs_extended_client.message_size_threshold);
         assert_eq!(1000, sqs_extended_client.batch_messages_size_threshold);
         assert_eq!(true, sqs_extended_client.always_through_s3);
@@ -361,7 +389,17 @@ mod tests {
         let sqs_extended_client: SqsExtendedClient =
             SqsExtendedClientBuilder::new(make_test_s3_client(), make_test_sqs_client()).build();
 
-        assert_eq!("", sqs_extended_client.bucket_name);
+        let bucket_name: String;
+        match sqs_extended_client.bucket_name {
+            None => {
+                bucket_name = String::from("");
+            }
+            Some(bn) => {
+                bucket_name = bn;
+            }
+        }
+
+        assert_eq!("", bucket_name);
         assert_eq!(
             MAX_MESSAGE_SIZE_IN_BYTES,
             sqs_extended_client.message_size_threshold

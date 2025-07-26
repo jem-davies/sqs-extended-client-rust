@@ -1,9 +1,9 @@
 use aws_config::BehaviorVersion;
 use aws_sdk_sqs::operation::send_message::builders::SendMessageFluentBuilder;
-use sqs_extended_client::{SqsExtendedClient, SqsExtendedClientBuilder};
+use sqs_extended_client::{SqsExtendedClient, SqsExtendedClientBuilder, SqsExtendedClientError};
 
 #[::tokio::main]
-async fn main() -> Result<(), aws_sdk_sqs::Error> {
+async fn main() -> Result<(), SqsExtendedClientError> {
     // what should this return be? -> guess it won't matter because this will go anyway...
     let config: aws_config::SdkConfig =
         aws_config::load_defaults(BehaviorVersion::v2025_01_17()).await;
