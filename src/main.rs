@@ -17,7 +17,7 @@ async fn main() -> Result<(), SqsExtendedClientError> {
     let sqs_extended_client: SqsExtendedClient =
         SqsExtendedClientBuilder::new(s3_client, sqs_client)
             .with_s3_bucket_name(s3_bucket_name)
-            .with_always_through_s3(false)
+            .with_always_through_s3(true)
             //.with_message_size_threshold(2)
             .build();
 
@@ -26,9 +26,9 @@ async fn main() -> Result<(), SqsExtendedClientError> {
         .queue_url(&sqs_queue_url)
         .message_body("HELLO SQS FROM RUST! :) 4");
 
-   //sqs_extended_client.send_message(msg_input).await?;
+    sqs_extended_client.send_message(msg_input).await?;
 
-    sqs_extended_client.receive_message(&sqs_queue_url).await?;
+    //sqs_extended_client.receive_message(&sqs_queue_url).await?;
 
     Ok(())
 }

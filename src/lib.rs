@@ -39,13 +39,13 @@ impl SqsExtendedClient {
         msg_input: SendMessageFluentBuilder,
     ) -> Result<SendMessageOutput, SqsExtendedClientError> {
         let bucket_name: String;
-        match &self.bucket_name {
+        match &self.bucket_name { // replace with a let-else statement
             None => return Err(SqsExtendedClientError::NoBucketName),
             Some(bn) => bucket_name = bn.to_string(),
         }
 
         let message_body: &str;
-        match msg_input.get_message_body() {
+        match msg_input.get_message_body() { // replace with a let-else statement
             None => return Err(SqsExtendedClientError::NoMessageBody),
             Some(msg_bdy) => message_body = msg_bdy,
         }
@@ -94,23 +94,7 @@ impl SqsExtendedClient {
         result.map_err(|sqs_error| SqsExtendedClientError::SqsSendMessage(sqs_error))
     }
 
-    pub async fn receive_message(&self, queue_url: &String) -> Result<(), SqsExtendedClientError> {
-        let receive_message_output = self
-            .sqs_client
-            .receive_message()
-            .queue_url(queue_url)
-            .send()
-            .await
-            .map_err(SqsExtendedClientError::SqsReceiveMessage)?;
-
-        println!("Messages from queue with url: {}", queue_url);
-
-        for message in receive_message_output.messages.unwrap_or_default() {
-            println!("Got the message: {:#?}", message)
-        }
-
-        receive_message_output.messages.unwrap_or_default()[0].body = Some("THEONCIENoicnoin".to_string());
-
+    pub async fn receive_message(&self, _queue_url: &String) -> Result<(), SqsExtendedClientError> {
         Ok(())
     }
 
