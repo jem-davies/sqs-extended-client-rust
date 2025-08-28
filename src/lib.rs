@@ -1,6 +1,6 @@
 use core::panic;
 use std::collections::HashMap;
-use std::fmt;
+use std::{fmt, rc};
 
 use aws_sdk_s3;
 use aws_sdk_s3::operation::put_object::{PutObjectError, PutObjectOutput};
@@ -94,7 +94,20 @@ impl SqsExtendedClient {
         result.map_err(|sqs_error| SqsExtendedClientError::SqsSendMessage(sqs_error))
     }
 
-    pub async fn receive_message(&self, _queue_url: &String) -> Result<(), SqsExtendedClientError> {
+    pub async fn receive_message(&self, queue_url: &String) -> Result<(), SqsExtendedClientError> {
+        let rcv_message_output = self.sqs_client.receive_message().queue_url(queue_url).send().await;
+        
+        let foo = match rcv_message_output {
+            Ok(result) => result,
+            Err(err) => return Err(SqsExtendedClientError::SqsReceiveMessage(err))
+        };
+
+        println!("Messages from queue with url: {}", queue_url);
+    
+        for message in foo.messages.unwrap_or_default() {
+            println!("Got the message: {:#?}", message);
+        }
+    
         Ok(())
     }
 

@@ -28,7 +28,7 @@ async fn main() -> Result<(), SqsExtendedClientError> {
 
     sqs_extended_client.send_message(msg_input).await?;
 
-    //sqs_extended_client.receive_message(&sqs_queue_url).await?;
+    sqs_extended_client.receive_message(&sqs_queue_url).await?;
 
     Ok(())
 }
