@@ -5,6 +5,7 @@ use std::fmt;
 use aws_sdk_s3;
 use aws_sdk_s3::operation::put_object::{PutObjectError, PutObjectOutput};
 use aws_sdk_sqs;
+use aws_sdk_sqs::operation::receive_message::ReceiveMessageError;
 use aws_sdk_sqs::operation::send_message::builders::SendMessageFluentBuilder;
 use aws_sdk_sqs::operation::send_message::{SendMessageError, SendMessageOutput};
 use aws_sdk_sqs::types::MessageAttributeValue;
@@ -93,7 +94,27 @@ impl SqsExtendedClient {
         result.map_err(|sqs_error| SqsExtendedClientError::SqsSendMessage(sqs_error))
     }
 
-    pub fn receive_message(&self) {
+    pub async fn receive_message(&self, queue_url: &String) -> Result<(), SqsExtendedClientError> {
+        let receive_message_output = self
+            .sqs_client
+            .receive_message()
+            .queue_url(queue_url)
+            .send()
+            .await
+            .map_err(SqsExtendedClientError::SqsReceiveMessage)?;
+
+        println!("Messages from queue with url: {}", queue_url);
+
+        for message in receive_message_output.messages.unwrap_or_default() {
+            println!("Got the message: {:#?}", message)
+        }
+
+        receive_message_output.messages.unwrap_or_default()[0].body = Some("THEONCIENoicnoin".to_string());
+
+        Ok(())
+    }
+
+    pub async fn delete_message(&self) -> Result<(), SqsExtendedClientError> {
         panic!("NOT IMPLEMENTED");
     }
 
@@ -295,6 +316,7 @@ impl MessageSize {
 pub enum SqsExtendedClientError {
     S3Upload(SdkError<PutObjectError, HttpResponse>),
     SqsSendMessage(SdkError<SendMessageError, HttpResponse>),
+    SqsReceiveMessage(SdkError<ReceiveMessageError, HttpResponse>),
     NoBucketName,
     NoMessageBody,
 }
@@ -304,6 +326,7 @@ impl fmt::Display for SqsExtendedClientError {
         match self {
             Self::S3Upload(err) => write!(f, "S3 upload failed: {}", err),
             Self::SqsSendMessage(err) => write!(f, "SQS operation failed: {}", err),
+            Self::SqsReceiveMessage(err) => write!(f, "SQS operation failed: {}", err),
             Self::NoBucketName => write!(f, "No bucket name configured"),
             Self::NoMessageBody => write!(f, "No message body provided"),
         }

@@ -23,9 +23,12 @@ async fn main() -> Result<(), SqsExtendedClientError> {
 
     let msg_input: SendMessageFluentBuilder = clone_sqs_client
         .send_message()
-        .queue_url(sqs_queue_url)
-        .message_body("HELLO SQS FROM RUST! :)");
+        .queue_url(&sqs_queue_url)
+        .message_body("HELLO SQS FROM RUST! :) 4");
 
-    sqs_extended_client.send_message(msg_input).await?;
+   //sqs_extended_client.send_message(msg_input).await?;
+
+    sqs_extended_client.receive_message(&sqs_queue_url).await?;
+
     Ok(())
 }
