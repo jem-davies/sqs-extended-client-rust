@@ -21,14 +21,16 @@ async fn main() -> Result<(), SqsExtendedClientError> {
             //.with_message_size_threshold(2)
             .build();
 
+    let large_message: String = "X".repeat(12 * 1024 * 1024);
+
     let msg_input: SendMessageFluentBuilder = clone_sqs_client
         .send_message()
         .queue_url(&sqs_queue_url)
-        .message_body("HELLO SQS FROM RUST! :) 4");
+        .message_body(large_message);
 
     sqs_extended_client.send_message(msg_input).await?;
 
-    sqs_extended_client.receive_message(&sqs_queue_url).await?;
+    //sqs_extended_client.receive_message(&sqs_queue_url).await?;
 
     Ok(())
 }

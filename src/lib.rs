@@ -12,6 +12,7 @@ use aws_sdk_sqs::types::MessageAttributeValue;
 use aws_smithy_runtime_api::client::orchestrator::HttpResponse;
 use aws_smithy_runtime_api::client::result::SdkError;
 use aws_smithy_types::byte_stream::ByteStream;
+use aws_smithy_types::error::operation::BuildError;
 use uuid::Uuid;
 
 const MAX_MESSAGE_SIZE_IN_BYTES: usize = 262144;
@@ -79,8 +80,7 @@ impl SqsExtendedClient {
             let reserved_attribute = MessageAttributeValue::builder()
                 .data_type("Number")
                 .string_value(message_body_size.to_string())
-                .build()
-                .expect("Failed to build MessageAttributeValue");
+                .build()?;
 
             msg_input
                 .message_body(new_msg.marshall_json())
@@ -103,9 +103,13 @@ impl SqsExtendedClient {
         };
 
         println!("Messages from queue with url: {}", queue_url);
-    
+
         for message in foo.messages.unwrap_or_default() {
             println!("Got the message: {:#?}", message);
+            while let Some(attr) = message.clone().attributes {
+                println!("here");
+                println!("Attr {:#?}", attr);
+            }
         }
     
         Ok(())
@@ -314,6 +318,7 @@ pub enum SqsExtendedClientError {
     S3Upload(SdkError<PutObjectError, HttpResponse>),
     SqsSendMessage(SdkError<SendMessageError, HttpResponse>),
     SqsReceiveMessage(SdkError<ReceiveMessageError, HttpResponse>),
+    SqsBuildMessageAttribute(BuildError),
     NoBucketName,
     NoMessageBody,
 }
@@ -324,9 +329,16 @@ impl fmt::Display for SqsExtendedClientError {
             Self::S3Upload(err) => write!(f, "S3 upload failed: {}", err),
             Self::SqsSendMessage(err) => write!(f, "SQS operation failed: {}", err),
             Self::SqsReceiveMessage(err) => write!(f, "SQS operation failed: {}", err),
+            Self::SqsBuildMessageAttribute(err ) => write!(f, "SQS build message attribute failed: {}", err),
             Self::NoBucketName => write!(f, "No bucket name configured"),
             Self::NoMessageBody => write!(f, "No message body provided"),
         }
+    }
+}
+
+impl From<aws_sdk_s3::error::BuildError> for SqsExtendedClientError {
+    fn from(err: aws_sdk_s3::error::BuildError) -> Self {
+        Self::SqsBuildMessageAttribute(err)
     }
 }
 
