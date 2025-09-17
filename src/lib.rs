@@ -1,18 +1,27 @@
 use core::panic;
 use std::collections::HashMap;
-use std::{fmt, rc};
+use std::fmt;
+use std::hash::RandomState;
+use std::str::Utf8Error;
 
 use aws_sdk_s3;
+use aws_sdk_s3::operation::get_object::{GetObjectError, GetObjectOutput};
 use aws_sdk_s3::operation::put_object::{PutObjectError, PutObjectOutput};
+use aws_sdk_s3::primitives::ByteStreamError;
 use aws_sdk_sqs;
-use aws_sdk_sqs::operation::receive_message::ReceiveMessageError;
+use aws_sdk_sqs::operation::receive_message::builders::ReceiveMessageFluentBuilder;
+use aws_sdk_sqs::operation::receive_message::{ReceiveMessageOutput, ReceiveMessageError};
 use aws_sdk_sqs::operation::send_message::builders::SendMessageFluentBuilder;
 use aws_sdk_sqs::operation::send_message::{SendMessageError, SendMessageOutput};
-use aws_sdk_sqs::types::MessageAttributeValue;
+use aws_sdk_sqs::types::{MessageAttributeValue, MessageSystemAttributeName};
+use aws_sdk_sqs::types::Message;
 use aws_smithy_runtime_api::client::orchestrator::HttpResponse;
 use aws_smithy_runtime_api::client::result::SdkError;
+use aws_smithy_runtime_api::http::Response;
 use aws_smithy_types::byte_stream::ByteStream;
 use aws_smithy_types::error::operation::BuildError;
+use serde::{Deserialize, Serialize};
+use serde_json::Result as SerdeJsonResult;
 use uuid::Uuid;
 
 const MAX_MESSAGE_SIZE_IN_BYTES: usize = 262144;
@@ -94,25 +103,69 @@ impl SqsExtendedClient {
         result.map_err(|sqs_error| SqsExtendedClientError::SqsSendMessage(sqs_error))
     }
 
-    pub async fn receive_message(&self, queue_url: &String) -> Result<(), SqsExtendedClientError> {
-        let rcv_message_output = self.sqs_client.receive_message().queue_url(queue_url).send().await;
-        
-        let foo = match rcv_message_output {
-            Ok(result) => result,
-            Err(err) => return Err(SqsExtendedClientError::SqsReceiveMessage(err))
+    pub async fn receive_message(&self, receive_message_builder: ReceiveMessageFluentBuilder) -> Result<ReceiveMessageOutput, SqsExtendedClientError> {
+
+        let mut sqs_response: ReceiveMessageOutput = receive_message_builder.message_attribute_names("All").send().await?; // consider enabling specifiying input to message_attribute_names
+
+        let mut messages: Vec<Message> = match &sqs_response.messages {
+            None => return Ok(sqs_response),
+            Some(msgs) => msgs.clone(),
         };
 
-        println!("Messages from queue with url: {}", queue_url);
+        // CHECK ALL THIS CRAP 👇
+        for msg in messages.iter_mut() { // .iter() / .into_iter() / .iter_mut()
+            let mut found: bool = false;
 
-        for message in foo.messages.unwrap_or_default() {
-            println!("Got the message: {:#?}", message);
-            while let Some(attr) = message.clone().attributes {
-                println!("here");
-                println!("Attr {:#?}", attr);
+            // if any of the message's attributes match the reservedAttributes then found = true and break -> we know we need to 'deref' 
+            for rsrvd_attr in self.reserved_attributes.iter() {
+
+                let foo: HashMap<std::string::String, MessageAttributeValue>;
+
+                match &msg.message_attributes {
+                    None => break,
+                    Some(ma) => foo = ma.clone()
+                }
+
+                if foo.contains_key(rsrvd_attr.as_str())  {
+                    found = true;
+                    break;
+                }
             }
+
+            if !found {
+                continue
+            }
+
+            let body: String;
+            match &msg.body {
+                None => return Ok(sqs_response), // TODO Think about what we should do if there is no body
+                Some(b) => body = b.to_string(),
+            }
+
+            // unmarshall the s3 pointer json object 
+            let s3_pointer = S3Pointer::unmarshall_json(&body)?;
+            
+            // retreive from s3
+            let object: GetObjectOutput = self.s3_client
+                .get_object()
+                .bucket(s3_pointer.s3_bucket_name)
+                .key(s3_pointer.s3_key)
+                .send()
+                .await?;
+
+            let bytes    = object.body.collect().await?.into_bytes();
+            let response = std::str::from_utf8(&bytes)?;
+
+            msg.body = Some(response.to_string());
+
+            // TODO - receiptHandle 
         }
+
+        // return the modified sqs_response
+
+        sqs_response.messages = Some(messages); 
     
-        Ok(())
+        Ok(sqs_response)
     }
 
     pub async fn delete_message(&self) -> Result<(), SqsExtendedClientError> {
@@ -283,6 +336,18 @@ impl SqsExtendedClientBuilder {
 
 //------------------------------------------------------------------------------
 
+#[derive(Serialize, Deserialize, Debug)]
+struct S3PointerArray(String, S3PointerBucketAndKeyObject);
+
+#[derive(Serialize, Deserialize, Debug)]
+struct S3PointerBucketAndKeyObject {
+    #[serde(rename = "s3BucketName")]
+    s3_bucket_name: String,
+    #[serde(rename = "s3Key")]
+    s3_key: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 struct S3Pointer {
     s3_bucket_name: String,
     s3_key: String,
@@ -290,13 +355,38 @@ struct S3Pointer {
 }
 
 impl S3Pointer {
-    fn marshall_json(self) -> String {
+    fn marshall_json(self) -> String { // TODO: maybe replace this now we have to use serde anyway...
         String::from(format!(
             "[\"{}\",{{\"s3BucketName\":\"{}\",\"s3Key\":\"{}\"}}]",
             self.class, self.s3_bucket_name, self.s3_key
         ))
     }
+
+    fn unmarshall_json(input: &str) -> SerdeJsonResult<S3Pointer> {  // Could be considered the constructor? 
+        let wrapper: S3PointerArray = serde_json::from_str(input)?;
+    
+        let s3_pointer: S3Pointer = S3Pointer {
+            s3_bucket_name: wrapper.1.s3_bucket_name,
+            s3_key: wrapper.1.s3_key,
+            class: wrapper.0,
+        };
+
+        println!("S3 POINTER: {}", s3_pointer);
+        Ok(s3_pointer)
+    }
 }
+
+// TODO: REMOVE 👇
+impl fmt::Display for S3Pointer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "S3Pointer {{ s3_bucket_name: {}, s3_key: {}, class: {} }}",
+            self.s3_bucket_name, self.s3_key, self.class
+        )
+    }
+}
+
 
 //------------------------------------------------------------------------------
 
@@ -316,9 +406,13 @@ impl MessageSize {
 #[derive(Debug)]
 pub enum SqsExtendedClientError {
     S3Upload(SdkError<PutObjectError, HttpResponse>),
+    S3Download(SdkError<GetObjectError, Response>),
+    S3DownloadToBytes(ByteStreamError),
+    S3DownloadToUtf8(Utf8Error),
     SqsSendMessage(SdkError<SendMessageError, HttpResponse>),
     SqsReceiveMessage(SdkError<ReceiveMessageError, HttpResponse>),
     SqsBuildMessageAttribute(BuildError),
+    SqsReceiveMessageUnMarshallMessageBody(serde_json::Error),
     NoBucketName,
     NoMessageBody,
 }
@@ -327,9 +421,13 @@ impl fmt::Display for SqsExtendedClientError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::S3Upload(err) => write!(f, "S3 upload failed: {}", err),
+            Self::S3Download(err) => write!(f, "S3 download failed: {}", err),
+            Self::S3DownloadToBytes(err) => write!(f, "S3 Byte Stream Error: {}", err),
+            Self::S3DownloadToUtf8(err) => write!(f, "S3 Byte Stream Error: {}", err),
             Self::SqsSendMessage(err) => write!(f, "SQS operation failed: {}", err),
             Self::SqsReceiveMessage(err) => write!(f, "SQS operation failed: {}", err),
             Self::SqsBuildMessageAttribute(err ) => write!(f, "SQS build message attribute failed: {}", err),
+            Self::SqsReceiveMessageUnMarshallMessageBody(err) => write!(f, "Failed to marshall sqs message body: {}", err),
             Self::NoBucketName => write!(f, "No bucket name configured"),
             Self::NoMessageBody => write!(f, "No message body provided"),
         }
@@ -339,6 +437,36 @@ impl fmt::Display for SqsExtendedClientError {
 impl From<aws_sdk_s3::error::BuildError> for SqsExtendedClientError {
     fn from(err: aws_sdk_s3::error::BuildError) -> Self {
         Self::SqsBuildMessageAttribute(err)
+    }
+}
+
+impl From<Utf8Error> for SqsExtendedClientError {
+    fn from(err: Utf8Error) -> Self {
+        Self::S3DownloadToUtf8(err)
+    }
+}
+
+impl From<ByteStreamError> for SqsExtendedClientError {
+    fn from(err: ByteStreamError) -> Self {
+        Self::S3DownloadToBytes(err)
+    }
+}
+
+impl From<SdkError<GetObjectError, Response>> for SqsExtendedClientError {
+    fn from(err: SdkError<GetObjectError, Response>) -> Self {
+        Self::S3Download(err)
+    }
+}
+
+impl From<SdkError<ReceiveMessageError, HttpResponse>> for SqsExtendedClientError {
+    fn from(err: SdkError<ReceiveMessageError, HttpResponse>) -> Self {
+        Self::SqsReceiveMessage(err)
+    }
+}
+
+impl From<serde_json::Error> for SqsExtendedClientError {
+    fn from(err: serde_json::Error) -> Self {
+        Self::SqsReceiveMessageUnMarshallMessageBody(err)
     }
 }
 
