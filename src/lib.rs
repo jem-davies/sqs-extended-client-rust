@@ -9,6 +9,7 @@ use aws_sdk_s3::operation::get_object::{GetObjectError, GetObjectOutput};
 use aws_sdk_s3::operation::put_object::{PutObjectError, PutObjectOutput};
 use aws_sdk_s3::primitives::ByteStreamError;
 use aws_sdk_sqs;
+use aws_sdk_sqs::operation::change_message_visibility::{ChangeMessageVisibilityError, ChangeMessageVisibilityInput, ChangeMessageVisibilityOutput};
 use aws_sdk_sqs::operation::delete_message::{DeleteMessageError, DeleteMessageInput, DeleteMessageOutput};
 use aws_sdk_sqs::operation::receive_message::builders::ReceiveMessageFluentBuilder;
 use aws_sdk_sqs::operation::receive_message::{ReceiveMessageOutput, ReceiveMessageError};
@@ -201,8 +202,20 @@ impl SqsExtendedClient {
         return Ok(resp)
     }
 
-    pub async fn change_message_visibility(&self) -> Result<(), SqsExtendedClientError> {
-        panic!("NOT IMPLEMENTED")
+    pub async fn change_message_visibility(
+        &self,
+        mut change_message_visibility: ChangeMessageVisibilityInput
+    ) -> Result<ChangeMessageVisibilityOutput, SqsExtendedClientError> {
+
+        let receipt_handle: String;
+        match change_message_visibility.receipt_handle {
+            None => panic!("OCEOIC"), // TODO
+            Some(rh) => receipt_handle = rh.to_string()
+        }
+
+        let resp: ChangeMessageVisibilityOutput = self.sqs_client.change_message_visibility().send().await?;
+
+        Ok(resp)
     }
 
     fn message_exceeds_threshold(
@@ -477,6 +490,7 @@ pub enum SqsExtendedClientError {
     SqsSendMessage(SdkError<SendMessageError, HttpResponse>),
     SqsReceiveMessage(SdkError<ReceiveMessageError, HttpResponse>),
     SqsDeleteMessage(SdkError<DeleteMessageError, Response>),
+    SqsChangeMessageVisibility(SdkError<ChangeMessageVisibilityError, Response>),
     SqsBuildMessageAttribute(BuildError),
     SqsReceiveMessageUnMarshallMessageBody(serde_json::Error),
     NoBucketName,
@@ -494,6 +508,7 @@ impl fmt::Display for SqsExtendedClientError {
             Self::SqsSendMessage(err) => write!(f, "SQS operation failed: {}", err),
             Self::SqsReceiveMessage(err) => write!(f, "SQS operation failed: {}", err),
             Self::SqsDeleteMessage(err) => write!(f, "SQS delete failed: {}", err),
+            Self::SqsChangeMessageVisibility(err) => write!(f, "SQS change message visibilty failed: {}", err),
             Self::SqsBuildMessageAttribute(err ) => write!(f, "SQS build message attribute failed: {}", err),
             Self::SqsReceiveMessageUnMarshallMessageBody(err) => write!(f, "Failed to marshall sqs message body: {}", err),
             Self::NoBucketName => write!(f, "No bucket name configured"),
@@ -503,6 +518,7 @@ impl fmt::Display for SqsExtendedClientError {
 }
 
 // From<SdkError<DeleteObjectError, Response>>
+// From<SdkError<ChangeMessageVisibilityError, Response>>
 
 impl From<aws_sdk_s3::error::BuildError> for SqsExtendedClientError {
     fn from(err: aws_sdk_s3::error::BuildError) -> Self {
@@ -543,6 +559,12 @@ impl From<SdkError<ReceiveMessageError, HttpResponse>> for SqsExtendedClientErro
 impl From<SdkError<DeleteMessageError, Response>> for SqsExtendedClientError {
     fn from(err: SdkError<DeleteMessageError, Response>) -> Self {
         Self::SqsDeleteMessage(err)
+    }
+}
+
+impl From<SdkError<ChangeMessageVisibilityError, Response>> for SqsExtendedClientError {
+    fn from(err: SdkError<ChangeMessageVisibilityError, Response>) -> Self {
+        Self::SqsChangeMessageVisibility(err)
     }
 }
 
