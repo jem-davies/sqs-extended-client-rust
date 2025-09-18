@@ -322,6 +322,12 @@ impl SqsExtendedClient {
             Some(rh) => receipt_handle = rh.to_string()
         }
 
+        let (bucket, key, handle) = self.parse_extended_receipt_handle(receipt_handle.clone());
+
+        if bucket != "" && key != "" && handle != "" {
+            change_message_visibility.receipt_handle = Some(receipt_handle);
+        }
+
         let resp: ChangeMessageVisibilityOutput = self.sqs_client.change_message_visibility().send().await?;
 
         Ok(resp)
