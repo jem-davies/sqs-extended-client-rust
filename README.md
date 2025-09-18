@@ -2,4 +2,3 @@
 
 WIP
 
-![image](./flat_square.svg)
