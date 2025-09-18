@@ -26,3 +26,6 @@ target
 # TODO remove:
 questions.md 
 todo.md
+codecov
+codecov.SHA256SUM
+codecov.SHA256SUM.sig
