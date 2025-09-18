@@ -8,6 +8,7 @@ use aws_sdk_s3::operation::get_object::{GetObjectError, GetObjectOutput};
 use aws_sdk_s3::operation::put_object::{PutObjectError, PutObjectOutput};
 use aws_sdk_s3::primitives::ByteStreamError;
 use aws_sdk_sqs;
+use aws_sdk_sqs::operation::delete_message::{DeleteMessageInput, DeleteMessageOutput};
 use aws_sdk_sqs::operation::receive_message::builders::ReceiveMessageFluentBuilder;
 use aws_sdk_sqs::operation::receive_message::{ReceiveMessageOutput, ReceiveMessageError};
 use aws_sdk_sqs::operation::send_message::builders::SendMessageFluentBuilder;
@@ -141,36 +142,43 @@ impl SqsExtendedClient {
                 Some(b) => body = b.to_string(),
             }
 
+            let receipt_handle: String;
+            match &msg.receipt_handle {
+                None => return Ok(sqs_response), // TODO
+                Some(rh) => receipt_handle = rh.to_string()
+            }
+
             let s3_pointer = S3Pointer::unmarshall_json(&body)?;
             
             let object: GetObjectOutput = self.s3_client
                 .get_object()
-                .bucket(s3_pointer.s3_bucket_name)
-                .key(s3_pointer.s3_key)
+                .bucket(s3_pointer.s3_bucket_name.clone())
+                .key(s3_pointer.s3_key.clone())
                 .send()
                 .await?;
 
             let bytes    = object.body.collect().await?.into_bytes();
-            let response = std::str::from_utf8(&bytes)?;
+            let response: &str = std::str::from_utf8(&bytes)?;
 
             msg.body = Some(response.to_string());
-
-            // TODO - receiptHandle 
+            msg.receipt_handle = Some(self.new_extended_receipt_handle(s3_pointer.s3_bucket_name.clone(), s3_pointer.s3_key.clone(), receipt_handle))
         }
-
-        // return the modified sqs_response
-
+        
         sqs_response.messages = Some(messages); 
         Ok(sqs_response)
     }
 
-    pub async fn delete_message(&self) -> Result<(), SqsExtendedClientError> {
+    pub async fn delete_message(&self, delete_message_input: DeleteMessageInput) -> Result<DeleteMessageOutput, SqsExtendedClientError> {
+        // parse_extended_receipt_handle(delete_message_input.receipt_handle)
+        
         panic!("NOT IMPLEMENTED");
     }
 
     pub async fn change_message_visibility(&self) -> Result<(), SqsExtendedClientError> {
         panic!("NOT IMPLEMENTED")
     }
+
+//------------------------------------------------------------------------------
 
     fn message_exceeds_threshold(
         &self,
@@ -228,7 +236,28 @@ impl SqsExtendedClient {
         }
         filename
     }
+
+    fn new_extended_receipt_handle(&self, bucket: String, key: String, handle: String) -> String {
+        let s3_bucket_name_marker: String = "-..s3BucketName..-".to_string();
+        let s3_key_marker: String = "-..s3Key..-".to_string();
+
+        return format!("{}{}{}{}{}{}{}",
+            s3_bucket_name_marker,
+            bucket,
+            s3_bucket_name_marker,
+            s3_key_marker,
+            key,
+            s3_key_marker,
+            handle
+        ).to_string()
+    }
+
+    fn parse_extended_receipt_handle(&self, extended_handle: String) -> (String, String, String) {
+        return ("".to_string(), "".to_string(), "".to_string())
+    }
 }
+
+//------------------------------------------------------------------------------
 
 pub struct SqsExtendedClientBuilder {
     s3_client: aws_sdk_s3::Client,
