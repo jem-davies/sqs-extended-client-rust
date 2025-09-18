@@ -14,7 +14,7 @@ async fn main() -> Result<(), SqsExtendedClientError> {
 
     // TODO - get rid of this sqs_client cloning ...
     let sqs_client: aws_sdk_sqs::Client = aws_sdk_sqs::Client::new(&config);
-    // let sender_sqs_client: aws_sdk_sqs::Client = sqs_client.clone();
+    let sender_sqs_client: aws_sdk_sqs::Client = sqs_client.clone();
     let receiver_sqs_client: aws_sdk_sqs::Client = sqs_client.clone();
 
     let sqs_extended_client: SqsExtendedClient =
@@ -24,14 +24,14 @@ async fn main() -> Result<(), SqsExtendedClientError> {
             .with_message_size_threshold(2)
             .build();
 
-    // // let large_message: String = "X".repeat(12 * 1024 * 1024);
-    // let large_message: String = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX".to_string();
-    // let msg_input: SendMessageFluentBuilder = sender_sqs_client
-    //     .send_message()
-    //     .queue_url(&sqs_queue_url)
-    //     .message_body(large_message);
+    // let large_message: String = "X".repeat(12 * 1024 * 1024);
+    let large_message: String = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX".to_string();
+    let msg_input: SendMessageFluentBuilder = sender_sqs_client
+        .send_message()
+        .queue_url(&sqs_queue_url)
+        .message_body(large_message);
 
-    // sqs_extended_client.send_message(msg_input).await?;
+    sqs_extended_client.send_message(msg_input).await?;
 
     let receive_msg: ReceiveMessageFluentBuilder = receiver_sqs_client.receive_message().queue_url(sqs_queue_url);
 

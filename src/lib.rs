@@ -1,7 +1,6 @@
 use core::panic;
 use std::collections::HashMap;
 use std::fmt;
-use std::hash::RandomState;
 use std::str::Utf8Error;
 
 use aws_sdk_s3;
@@ -13,7 +12,7 @@ use aws_sdk_sqs::operation::receive_message::builders::ReceiveMessageFluentBuild
 use aws_sdk_sqs::operation::receive_message::{ReceiveMessageOutput, ReceiveMessageError};
 use aws_sdk_sqs::operation::send_message::builders::SendMessageFluentBuilder;
 use aws_sdk_sqs::operation::send_message::{SendMessageError, SendMessageOutput};
-use aws_sdk_sqs::types::{MessageAttributeValue, MessageSystemAttributeName};
+use aws_sdk_sqs::types::MessageAttributeValue;
 use aws_sdk_sqs::types::Message;
 use aws_smithy_runtime_api::client::orchestrator::HttpResponse;
 use aws_smithy_runtime_api::client::result::SdkError;
@@ -142,10 +141,8 @@ impl SqsExtendedClient {
                 Some(b) => body = b.to_string(),
             }
 
-            // unmarshall the s3 pointer json object 
             let s3_pointer = S3Pointer::unmarshall_json(&body)?;
             
-            // retreive from s3
             let object: GetObjectOutput = self.s3_client
                 .get_object()
                 .bucket(s3_pointer.s3_bucket_name)
@@ -164,12 +161,15 @@ impl SqsExtendedClient {
         // return the modified sqs_response
 
         sqs_response.messages = Some(messages); 
-    
         Ok(sqs_response)
     }
 
     pub async fn delete_message(&self) -> Result<(), SqsExtendedClientError> {
         panic!("NOT IMPLEMENTED");
+    }
+
+    pub async fn change_message_visibility(&self) -> Result<(), SqsExtendedClientError> {
+        panic!("NOT IMPLEMENTED")
     }
 
     fn message_exceeds_threshold(
