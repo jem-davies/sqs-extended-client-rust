@@ -31,6 +31,117 @@ const MAX_MESSAGE_SIZE_IN_BYTES: usize = 262144;
 static DEFAULT_POINTER_CLASS: &str = "software.amazon.payloadoffloading.PayloadS3Pointer";
 static LEGACY_RESERVED_ATTRIBUTE_NAME: &str = "SQSLargePayloadSize";
 
+//-SQS EXTENDED CLIENT BUILDER--------------------------------------------------
+
+pub struct SqsExtendedClientBuilder {
+    s3_client: aws_sdk_s3::Client,
+    sqs_client: aws_sdk_sqs::Client,
+    bucket_name: Option<String>,
+    message_size_threshold: usize,
+    batch_message_size_threshold: usize,
+    always_s3: bool,
+    pointer_class: String,
+    reserved_attributes: Vec<String>,
+    object_prefix: String,
+}
+
+impl SqsExtendedClientBuilder {
+    pub fn new(
+        s3_client: aws_sdk_s3::Client,
+        sqs_client: aws_sdk_sqs::Client,
+    ) -> SqsExtendedClientBuilder {
+        SqsExtendedClientBuilder {
+            s3_client,
+            sqs_client,
+            bucket_name: None,
+            message_size_threshold: MAX_MESSAGE_SIZE_IN_BYTES,
+            batch_message_size_threshold: MAX_MESSAGE_SIZE_IN_BYTES,
+            always_s3: false,
+            pointer_class: DEFAULT_POINTER_CLASS.to_string(),
+            reserved_attributes: vec![
+                "ExtendedPayloadSize".to_string(),
+                LEGACY_RESERVED_ATTRIBUTE_NAME.to_string(),
+            ],
+            object_prefix: "".to_string(),
+        }
+    }
+
+    pub fn with_logger(self) -> SqsExtendedClientBuilder {
+        panic!("NOT IMPLEMENTED");
+    }
+
+    pub fn with_s3_bucket_name(mut self, bucket_name: String) -> SqsExtendedClientBuilder {
+        self.bucket_name = Some(bucket_name);
+        self
+    }
+
+    pub fn with_message_size_threshold(mut self, msg_size: usize) -> SqsExtendedClientBuilder {
+        self.message_size_threshold = msg_size;
+        self
+    }
+
+    pub fn with_batch_message_size_threshold(
+        mut self,
+        batch_msg_size: usize,
+    ) -> SqsExtendedClientBuilder {
+        self.batch_message_size_threshold = batch_msg_size;
+        self
+    }
+
+    pub fn with_always_through_s3(mut self, always_s3: bool) -> SqsExtendedClientBuilder {
+        self.always_s3 = always_s3;
+        self
+    }
+
+    pub fn with_reserved_attribute_names(
+        mut self,
+        reserved_attribute_names: Vec<String>,
+    ) -> SqsExtendedClientBuilder {
+        self.reserved_attributes = reserved_attribute_names;
+        self
+    }
+
+    pub fn with_pointer_class(mut self, pointer_class: String) -> SqsExtendedClientBuilder {
+        self.pointer_class = pointer_class;
+        self
+    }
+
+    pub fn with_object_prefix(mut self, prefix: String) -> SqsExtendedClientBuilder {
+        self.object_prefix = prefix;
+        self
+    }
+
+    pub fn build(self) -> SqsExtendedClient {
+        let ptr: S3Pointer = S3Pointer {
+            s3_bucket_name: String::from(""),
+            s3_key: Uuid::new_v4().to_string(),
+            class: self.pointer_class.clone(),
+        };
+
+        let base_attribute_size: usize =
+            self.reserved_attributes[0].len() + "Number".to_string().len();
+        
+        let receipt_handler_regex: Regex = Regex::new(r"^-\.\.s3BucketName\.\.-(.*)-\.\.s3BucketName\.\.--\.\.s3Key\.\.-(.*)-\.\.s3Key\.\.-(.*)").unwrap();
+
+        SqsExtendedClient {
+            s3_client: self.s3_client,
+            sqs_client: self.sqs_client,
+            bucket_name: self.bucket_name,
+            message_size_threshold: self.message_size_threshold,
+            batch_messages_size_threshold: self.batch_message_size_threshold,
+            always_through_s3: self.always_s3,
+            pointer_class: self.pointer_class,
+            reserved_attributes: self.reserved_attributes,
+            object_prefix: self.object_prefix,
+            base_s3_pointer_size: ptr.marshall_json().len(),
+            base_attribute_size: base_attribute_size,
+            extended_receipt_handler_regex: receipt_handler_regex
+        }
+    }
+}
+
+//-SQS EXTENDED CLIENT----------------------------------------------------------
+
 pub struct SqsExtendedClient {
     s3_client: aws_sdk_s3::Client,
     sqs_client: aws_sdk_sqs::Client,
@@ -46,8 +157,6 @@ pub struct SqsExtendedClient {
     base_attribute_size: usize,
     extended_receipt_handler_regex: Regex,
 }
-
-//-SQSEXTENDEDCLIENT------------------------------------------------------------
 
 impl SqsExtendedClient {
     pub async fn send_message(
@@ -302,116 +411,7 @@ impl SqsExtendedClient {
     }
 }
 
-//-SQSEXTENDEDCLIENTBUILDER-----------------------------------------------------
-
-pub struct SqsExtendedClientBuilder {
-    s3_client: aws_sdk_s3::Client,
-    sqs_client: aws_sdk_sqs::Client,
-    bucket_name: Option<String>,
-    message_size_threshold: usize,
-    batch_message_size_threshold: usize,
-    always_s3: bool,
-    pointer_class: String,
-    reserved_attributes: Vec<String>,
-    object_prefix: String,
-}
-
-impl SqsExtendedClientBuilder {
-    pub fn new(
-        s3_client: aws_sdk_s3::Client,
-        sqs_client: aws_sdk_sqs::Client,
-    ) -> SqsExtendedClientBuilder {
-        SqsExtendedClientBuilder {
-            s3_client,
-            sqs_client,
-            bucket_name: None,
-            message_size_threshold: MAX_MESSAGE_SIZE_IN_BYTES,
-            batch_message_size_threshold: MAX_MESSAGE_SIZE_IN_BYTES,
-            always_s3: false,
-            pointer_class: DEFAULT_POINTER_CLASS.to_string(),
-            reserved_attributes: vec![
-                "ExtendedPayloadSize".to_string(),
-                LEGACY_RESERVED_ATTRIBUTE_NAME.to_string(),
-            ],
-            object_prefix: "".to_string(),
-        }
-    }
-
-    pub fn with_logger(self) -> SqsExtendedClientBuilder {
-        panic!("NOT IMPLEMENTED");
-    }
-
-    pub fn with_s3_bucket_name(mut self, bucket_name: String) -> SqsExtendedClientBuilder {
-        self.bucket_name = Some(bucket_name);
-        self
-    }
-
-    pub fn with_message_size_threshold(mut self, msg_size: usize) -> SqsExtendedClientBuilder {
-        self.message_size_threshold = msg_size;
-        self
-    }
-
-    pub fn with_batch_message_size_threshold(
-        mut self,
-        batch_msg_size: usize,
-    ) -> SqsExtendedClientBuilder {
-        self.batch_message_size_threshold = batch_msg_size;
-        self
-    }
-
-    pub fn with_always_through_s3(mut self, always_s3: bool) -> SqsExtendedClientBuilder {
-        self.always_s3 = always_s3;
-        self
-    }
-
-    pub fn with_reserved_attribute_names(
-        mut self,
-        reserved_attribute_names: Vec<String>,
-    ) -> SqsExtendedClientBuilder {
-        self.reserved_attributes = reserved_attribute_names;
-        self
-    }
-
-    pub fn with_pointer_class(mut self, pointer_class: String) -> SqsExtendedClientBuilder {
-        self.pointer_class = pointer_class;
-        self
-    }
-
-    pub fn with_object_prefix(mut self, prefix: String) -> SqsExtendedClientBuilder {
-        self.object_prefix = prefix;
-        self
-    }
-
-    pub fn build(self) -> SqsExtendedClient {
-        let ptr: S3Pointer = S3Pointer {
-            s3_bucket_name: String::from(""),
-            s3_key: Uuid::new_v4().to_string(),
-            class: self.pointer_class.clone(),
-        };
-
-        let base_attribute_size: usize =
-            self.reserved_attributes[0].len() + "Number".to_string().len();
-        
-        let receipt_handler_regex: Regex = Regex::new(r"^-\.\.s3BucketName\.\.-(.*)-\.\.s3BucketName\.\.--\.\.s3Key\.\.-(.*)-\.\.s3Key\.\.-(.*)").unwrap();
-
-        SqsExtendedClient {
-            s3_client: self.s3_client,
-            sqs_client: self.sqs_client,
-            bucket_name: self.bucket_name,
-            message_size_threshold: self.message_size_threshold,
-            batch_messages_size_threshold: self.batch_message_size_threshold,
-            always_through_s3: self.always_s3,
-            pointer_class: self.pointer_class,
-            reserved_attributes: self.reserved_attributes,
-            object_prefix: self.object_prefix,
-            base_s3_pointer_size: ptr.marshall_json().len(),
-            base_attribute_size: base_attribute_size,
-            extended_receipt_handler_regex: receipt_handler_regex
-        }
-    }
-}
-
-//-S3POINTER--------------------------------------------------------------------
+//-S3 POINTER-------------------------------------------------------------------
 
 #[derive(Serialize, Deserialize, Debug)]
 struct S3PointerArray(String, S3PointerBucketAndKeyObject);
@@ -464,8 +464,7 @@ impl fmt::Display for S3Pointer {
     }
 }
 
-
-//-MESSAGESIZE------------------------------------------------------------------
+//-MESSAGE SIZE-----------------------------------------------------------------
 
 struct MessageSize {
     body_size: usize,
@@ -516,9 +515,6 @@ impl fmt::Display for SqsExtendedClientError {
         }
     }
 }
-
-// From<SdkError<DeleteObjectError, Response>>
-// From<SdkError<ChangeMessageVisibilityError, Response>>
 
 impl From<aws_sdk_s3::error::BuildError> for SqsExtendedClientError {
     fn from(err: aws_sdk_s3::error::BuildError) -> Self {
