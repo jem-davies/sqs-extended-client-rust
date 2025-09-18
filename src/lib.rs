@@ -8,7 +8,7 @@ use aws_sdk_s3::operation::get_object::{GetObjectError, GetObjectOutput};
 use aws_sdk_s3::operation::put_object::{PutObjectError, PutObjectOutput};
 use aws_sdk_s3::primitives::ByteStreamError;
 use aws_sdk_sqs;
-use aws_sdk_sqs::operation::delete_message::{DeleteMessageInput, DeleteMessageOutput};
+use aws_sdk_sqs::operation::delete_message::{DeleteMessageError, DeleteMessageInput, DeleteMessageOutput};
 use aws_sdk_sqs::operation::receive_message::builders::ReceiveMessageFluentBuilder;
 use aws_sdk_sqs::operation::receive_message::{ReceiveMessageOutput, ReceiveMessageError};
 use aws_sdk_sqs::operation::send_message::builders::SendMessageFluentBuilder;
@@ -20,6 +20,7 @@ use aws_smithy_runtime_api::client::result::SdkError;
 use aws_smithy_runtime_api::http::Response;
 use aws_smithy_types::byte_stream::ByteStream;
 use aws_smithy_types::error::operation::BuildError;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Result as SerdeJsonResult;
 use uuid::Uuid;
@@ -41,7 +42,10 @@ pub struct SqsExtendedClient {
     object_prefix: String,
     base_s3_pointer_size: usize,
     base_attribute_size: usize,
+    extended_receipt_handler_regex: Regex,
 }
+
+//-SQSEXTENDEDCLIENT------------------------------------------------------------
 
 impl SqsExtendedClient {
     pub async fn send_message(
@@ -163,22 +167,34 @@ impl SqsExtendedClient {
             msg.body = Some(response.to_string());
             msg.receipt_handle = Some(self.new_extended_receipt_handle(s3_pointer.s3_bucket_name.clone(), s3_pointer.s3_key.clone(), receipt_handle))
         }
-        
+
         sqs_response.messages = Some(messages); 
         Ok(sqs_response)
     }
 
-    pub async fn delete_message(&self, delete_message_input: DeleteMessageInput) -> Result<DeleteMessageOutput, SqsExtendedClientError> {
-        // parse_extended_receipt_handle(delete_message_input.receipt_handle)
+    pub async fn delete_message(&self, mut delete_message_input: DeleteMessageInput) -> Result<DeleteMessageOutput, SqsExtendedClientError> {
+
+        let receipt_handle: String;
+        match delete_message_input.receipt_handle {
+            None => panic!("OCEOIC"), // TODO
+            Some(rh) => receipt_handle = rh.to_string()
+        }
+
+        let (bucket, key, handle) = self.parse_extended_receipt_handle(receipt_handle.clone());
         
-        panic!("NOT IMPLEMENTED");
+        if bucket != "" && key != "" && handle != "" {
+            delete_message_input.receipt_handle = Some(receipt_handle);
+        }
+
+        let resp: DeleteMessageOutput = self.sqs_client.delete_message().send().await?;
+
+        // TODO: make call to s3 delete
+        return Ok(resp)
     }
 
     pub async fn change_message_visibility(&self) -> Result<(), SqsExtendedClientError> {
         panic!("NOT IMPLEMENTED")
     }
-
-//------------------------------------------------------------------------------
 
     fn message_exceeds_threshold(
         &self,
@@ -252,12 +268,19 @@ impl SqsExtendedClient {
         ).to_string()
     }
 
-    fn parse_extended_receipt_handle(&self, extended_handle: String) -> (String, String, String) {
-        return ("".to_string(), "".to_string(), "".to_string())
+    // TODO: handle errors
+    fn parse_extended_receipt_handle(&self, extended_receipt_handle: String) -> (String, String, String) {
+        let caps: regex::Captures<'_> = self.extended_receipt_handler_regex.captures(&extended_receipt_handle).unwrap();
+
+        let bucket: String = caps.get(1).unwrap().as_str().to_string();
+        let key: String = caps.get(2).unwrap().as_str().to_string();
+        let receipt_handle: String = caps.get(3).unwrap().as_str().to_string();
+
+        return (bucket, key, receipt_handle)
     }
 }
 
-//------------------------------------------------------------------------------
+//-SQSEXTENDEDCLIENTBUILDER-----------------------------------------------------
 
 pub struct SqsExtendedClientBuilder {
     s3_client: aws_sdk_s3::Client,
@@ -346,6 +369,8 @@ impl SqsExtendedClientBuilder {
 
         let base_attribute_size: usize =
             self.reserved_attributes[0].len() + "Number".to_string().len();
+        
+        let receipt_handler_regex: Regex = Regex::new(r"^-\.\.s3BucketName\.\.-(.*)-\.\.s3BucketName\.\.--\.\.s3Key\.\.-(.*)-\.\.s3Key\.\.-(.*)").unwrap();
 
         SqsExtendedClient {
             s3_client: self.s3_client,
@@ -359,11 +384,12 @@ impl SqsExtendedClientBuilder {
             object_prefix: self.object_prefix,
             base_s3_pointer_size: ptr.marshall_json().len(),
             base_attribute_size: base_attribute_size,
+            extended_receipt_handler_regex: receipt_handler_regex
         }
     }
 }
 
-//------------------------------------------------------------------------------
+//-S3POINTER--------------------------------------------------------------------
 
 #[derive(Serialize, Deserialize, Debug)]
 struct S3PointerArray(String, S3PointerBucketAndKeyObject);
@@ -417,7 +443,7 @@ impl fmt::Display for S3Pointer {
 }
 
 
-//------------------------------------------------------------------------------
+//-MESSAGESIZE------------------------------------------------------------------
 
 struct MessageSize {
     body_size: usize,
@@ -430,7 +456,7 @@ impl MessageSize {
     }
 }
 
-//------------------------------------------------------------------------------
+//-ERRORS-----------------------------------------------------------------------
 
 #[derive(Debug)]
 pub enum SqsExtendedClientError {
@@ -440,6 +466,7 @@ pub enum SqsExtendedClientError {
     S3DownloadToUtf8(Utf8Error),
     SqsSendMessage(SdkError<SendMessageError, HttpResponse>),
     SqsReceiveMessage(SdkError<ReceiveMessageError, HttpResponse>),
+    SqsDeleteMessage(SdkError<DeleteMessageError, Response>),
     SqsBuildMessageAttribute(BuildError),
     SqsReceiveMessageUnMarshallMessageBody(serde_json::Error),
     NoBucketName,
@@ -455,6 +482,7 @@ impl fmt::Display for SqsExtendedClientError {
             Self::S3DownloadToUtf8(err) => write!(f, "S3 Byte Stream Error: {}", err),
             Self::SqsSendMessage(err) => write!(f, "SQS operation failed: {}", err),
             Self::SqsReceiveMessage(err) => write!(f, "SQS operation failed: {}", err),
+            Self::SqsDeleteMessage(err) => write!(f, "SQS delete failed: {}", err),
             Self::SqsBuildMessageAttribute(err ) => write!(f, "SQS build message attribute failed: {}", err),
             Self::SqsReceiveMessageUnMarshallMessageBody(err) => write!(f, "Failed to marshall sqs message body: {}", err),
             Self::NoBucketName => write!(f, "No bucket name configured"),
@@ -493,6 +521,12 @@ impl From<SdkError<ReceiveMessageError, HttpResponse>> for SqsExtendedClientErro
     }
 }
 
+impl From<SdkError<DeleteMessageError, Response>> for SqsExtendedClientError {
+    fn from(err: SdkError<DeleteMessageError, Response>) -> Self {
+        Self::SqsDeleteMessage(err)
+    }
+}
+
 impl From<serde_json::Error> for SqsExtendedClientError {
     fn from(err: serde_json::Error) -> Self {
         Self::SqsReceiveMessageUnMarshallMessageBody(err)
@@ -500,7 +534,8 @@ impl From<serde_json::Error> for SqsExtendedClientError {
 }
 
 impl std::error::Error for SqsExtendedClientError {}
-//------------------------------------------------------------------------------
+
+//-TESTS------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
