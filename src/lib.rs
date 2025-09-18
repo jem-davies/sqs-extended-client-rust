@@ -4,6 +4,7 @@ use std::fmt;
 use std::str::Utf8Error;
 
 use aws_sdk_s3;
+use aws_sdk_s3::operation::delete_object::DeleteObjectError;
 use aws_sdk_s3::operation::get_object::{GetObjectError, GetObjectOutput};
 use aws_sdk_s3::operation::put_object::{PutObjectError, PutObjectOutput};
 use aws_sdk_s3::primitives::ByteStreamError;
@@ -188,7 +189,15 @@ impl SqsExtendedClient {
 
         let resp: DeleteMessageOutput = self.sqs_client.delete_message().send().await?;
 
-        // TODO: make call to s3 delete
+        if bucket != "" && key != "" {
+            self.s3_client
+                .delete_object()
+                .bucket(bucket)
+                .key(key)
+                .send()
+                .await?;
+        }
+
         return Ok(resp)
     }
 
@@ -462,6 +471,7 @@ impl MessageSize {
 pub enum SqsExtendedClientError {
     S3Upload(SdkError<PutObjectError, HttpResponse>),
     S3Download(SdkError<GetObjectError, Response>),
+    S3DeleteObject(SdkError<DeleteObjectError, Response>),
     S3DownloadToBytes(ByteStreamError),
     S3DownloadToUtf8(Utf8Error),
     SqsSendMessage(SdkError<SendMessageError, HttpResponse>),
@@ -478,6 +488,7 @@ impl fmt::Display for SqsExtendedClientError {
         match self {
             Self::S3Upload(err) => write!(f, "S3 upload failed: {}", err),
             Self::S3Download(err) => write!(f, "S3 download failed: {}", err),
+            Self::S3DeleteObject(err) => write!(f, "S3 delete failed: {}", err),
             Self::S3DownloadToBytes(err) => write!(f, "S3 Byte Stream Error: {}", err),
             Self::S3DownloadToUtf8(err) => write!(f, "S3 Byte Stream Error: {}", err),
             Self::SqsSendMessage(err) => write!(f, "SQS operation failed: {}", err),
@@ -490,6 +501,8 @@ impl fmt::Display for SqsExtendedClientError {
         }
     }
 }
+
+// From<SdkError<DeleteObjectError, Response>>
 
 impl From<aws_sdk_s3::error::BuildError> for SqsExtendedClientError {
     fn from(err: aws_sdk_s3::error::BuildError) -> Self {
@@ -512,6 +525,12 @@ impl From<ByteStreamError> for SqsExtendedClientError {
 impl From<SdkError<GetObjectError, Response>> for SqsExtendedClientError {
     fn from(err: SdkError<GetObjectError, Response>) -> Self {
         Self::S3Download(err)
+    }
+}
+
+impl From<SdkError<DeleteObjectError, Response>> for SqsExtendedClientError {
+    fn from(err: SdkError<DeleteObjectError, Response>) -> Self {
+        Self::S3DeleteObject(err)
     }
 }
 
