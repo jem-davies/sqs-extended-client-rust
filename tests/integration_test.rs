@@ -2,8 +2,15 @@ use std::collections::HashMap;
 
 use aws_config::{BehaviorVersion, Region, meta::region::RegionProviderChain};
 use aws_sdk_s3::operation::get_object::GetObjectOutput;
-use aws_sdk_sqs::{self, operation::{receive_message::builders::ReceiveMessageFluentBuilder, send_message::builders::SendMessageFluentBuilder}, types::{MessageAttributeValue}};
 use aws_sdk_sqs::operation::receive_message::ReceiveMessageOutput;
+use aws_sdk_sqs::{
+    self,
+    operation::{
+        receive_message::builders::ReceiveMessageFluentBuilder,
+        send_message::builders::SendMessageFluentBuilder,
+    },
+    types::MessageAttributeValue,
+};
 use sqs_extended_client::{SqsExtendedClient, SqsExtendedClientBuilder};
 use testcontainers_modules::{
     localstack::{self, LocalStack},
@@ -30,36 +37,52 @@ async fn send_message_always_through_s3() -> Result<(), Box<dyn std::error::Erro
 
     sqs_extended_client.send_message(msg_input).await?;
 
-    let receive_msg: ReceiveMessageFluentBuilder = receive_clone_sqs_client.receive_message().queue_url(&queue_url);
+    let receive_msg: ReceiveMessageFluentBuilder = receive_clone_sqs_client
+        .receive_message()
+        .queue_url(&queue_url);
 
-    let response:ReceiveMessageOutput = sqs_extended_client.receive_message(receive_msg).await?;
+    let response: ReceiveMessageOutput = sqs_extended_client.receive_message(receive_msg).await?;
 
-    let msgs:Vec<aws_sdk_sqs::types::Message> = response.messages.clone().unwrap_or_default();
+    let msgs: Vec<aws_sdk_sqs::types::Message> = response.messages.clone().unwrap_or_default();
 
-    assert_eq!(msgs.len(), 1); 
-    assert_eq!(msgs[0].body.as_ref().unwrap(), "hello SQS! with love from the sqs-extended-client-rust 😊");
+    assert_eq!(msgs.len(), 1);
+    assert_eq!(
+        msgs[0].body.as_ref().unwrap(),
+        "hello SQS! with love from the sqs-extended-client-rust 😊"
+    );
 
     let reserved_attribute = MessageAttributeValue::builder()
         .data_type("Number")
         .string_value("59")
         .build()?;
 
-    let attributes: HashMap<std::string::String, MessageAttributeValue> = msgs[0].message_attributes.clone().unwrap();
+    let attributes: HashMap<std::string::String, MessageAttributeValue> =
+        msgs[0].message_attributes.clone().unwrap();
 
-    let expected_attributes: HashMap<String, MessageAttributeValue> = HashMap::from([
-        ("ExtendedPayloadSize".to_string(), reserved_attribute),
-    ]);
-
+    let expected_attributes: HashMap<String, MessageAttributeValue> =
+        HashMap::from([("ExtendedPayloadSize".to_string(), reserved_attribute)]);
 
     assert_eq!(attributes, expected_attributes);
 
     // Check the receipt handle - and use the values to check for the S3 Object!
     let receipt_handle = msgs[0].receipt_handle.clone().unwrap();
 
-    let s3_bucket: &str = receipt_handle.split("-..s3BucketName..-").nth(1).unwrap().split("-..s3BucketName..-").next().unwrap();
-    let s3_key: &str = receipt_handle.split("-..s3Key..-").nth(1).unwrap().split("-..s3Key..-").next().unwrap();
+    let s3_bucket: &str = receipt_handle
+        .split("-..s3BucketName..-")
+        .nth(1)
+        .unwrap()
+        .split("-..s3BucketName..-")
+        .next()
+        .unwrap();
+    let s3_key: &str = receipt_handle
+        .split("-..s3Key..-")
+        .nth(1)
+        .unwrap()
+        .split("-..s3Key..-")
+        .next()
+        .unwrap();
 
-    // get the file contents from s3 as a string: 
+    // get the file contents from s3 as a string:
     let list_objects_output = s3_client
         .list_objects_v2()
         .bucket("sqs-extended-client-bucket")
@@ -78,10 +101,13 @@ async fn send_message_always_through_s3() -> Result<(), Box<dyn std::error::Erro
         .send()
         .await?;
 
-    let bytes    = object.body.collect().await?.into_bytes();
+    let bytes = object.body.collect().await?.into_bytes();
     let response: &str = std::str::from_utf8(&bytes)?;
 
-    assert_eq!(response, "hello SQS! with love from the sqs-extended-client-rust 😊");
+    assert_eq!(
+        response,
+        "hello SQS! with love from the sqs-extended-client-rust 😊"
+    );
 
     let _rm = node.rm();
 

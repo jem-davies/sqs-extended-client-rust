@@ -115,6 +115,7 @@ async fn main() -> Result<(), SqsExtendedClientError> {
     - change_message_visibility     ❌
     - send_and_receive_multiple     ❌
 - MVP DEV EXP. 
+    - github workflow linting       ❌
     - github workflow tests         ❌
     - github workflow release       ❌
     - github workflow converage     ✅ -> Doesn't work bogus line count 
