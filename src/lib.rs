@@ -145,18 +145,16 @@ impl SqsExtendedClient {
         &self,
         msg_input: SendMessageFluentBuilder,
     ) -> Result<SendMessageOutput, SqsExtendedClientError> {
-        let bucket_name: String = match &self.bucket_name {
-            // TODO replace with a let-else statement
-            None => return Err(SqsExtendedClientError::NoBucketName),
-            Some(bn) => bn.to_string(),
+        let Some(bn) = &self.bucket_name else {
+            return Err(SqsExtendedClientError::NoBucketName);
         };
-
-        let message_body: &str = match msg_input.get_message_body() {
-            // TODO replace with a let-else statement
-            None => return Err(SqsExtendedClientError::NoMessageBody),
-            Some(msg_bdy) => msg_bdy,
+        let bucket_name: String = bn.to_string();
+        
+        let Some(msg_bdy) = msg_input.get_message_body() else {
+            return Err(SqsExtendedClientError::NoMessageBody);
         };
-
+        let message_body: &str = msg_bdy;
+        
         let result: Result<SendMessageOutput, SdkError<SendMessageError, Response>> = if self
             .always_through_s3
             || self.message_exceeds_threshold(message_body, msg_input.get_message_attributes())

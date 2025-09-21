@@ -92,7 +92,7 @@ async fn main() -> Result<(), SqsExtendedClientError> {
     - delete_message                ✅
     - change_message_visibility     ✅
 - TODOs                               
-    - match -> let-else             ❌
+    - match -> let-else             ✅
     - 100% error handling           ❌
     - review rcv_msg() looping etc. ❌
 - UNIT TESTS
