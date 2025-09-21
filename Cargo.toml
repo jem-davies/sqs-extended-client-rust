@@ -1,6 +1,6 @@
 [package]
 name = "sqs-extended-client"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "AWS SQS extended client functionality from amazon-sqs-java-extended-client-lib"
 license = "MIT OR Apache-2.0"
