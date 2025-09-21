@@ -66,10 +66,6 @@ impl SqsExtendedClientBuilder {
         }
     }
 
-    pub fn with_logger(self) -> SqsExtendedClientBuilder {
-        panic!("NOT IMPLEMENTED");
-    }
-
     pub fn with_s3_bucket_name(mut self, bucket_name: String) -> SqsExtendedClientBuilder {
         self.bucket_name = Some(bucket_name);
         self
