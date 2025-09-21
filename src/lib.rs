@@ -3,12 +3,10 @@ use std::collections::HashMap;
 use std::fmt;
 use std::str::Utf8Error;
 
-use aws_sdk_s3;
 use aws_sdk_s3::operation::delete_object::DeleteObjectError;
 use aws_sdk_s3::operation::get_object::{GetObjectError, GetObjectOutput};
 use aws_sdk_s3::operation::put_object::{PutObjectError, PutObjectOutput};
 use aws_sdk_s3::primitives::ByteStreamError;
-use aws_sdk_sqs;
 use aws_sdk_sqs::operation::change_message_visibility::{
     ChangeMessageVisibilityError, ChangeMessageVisibilityInput, ChangeMessageVisibilityOutput,
 };
@@ -147,23 +145,23 @@ impl SqsExtendedClient {
         &self,
         msg_input: SendMessageFluentBuilder,
     ) -> Result<SendMessageOutput, SqsExtendedClientError> {
-        let bucket_name: String;
-        match &self.bucket_name {
+        
+        let bucket_name: String = match &self.bucket_name {
             // TODO replace with a let-else statement
             None => return Err(SqsExtendedClientError::NoBucketName),
-            Some(bn) => bucket_name = bn.to_string(),
-        }
+            Some(bn) => bn.to_string(),
+        };
 
-        let message_body: &str;
-        match msg_input.get_message_body() {
+        
+        let message_body: &str = match msg_input.get_message_body() {
             // TODO replace with a let-else statement
             None => return Err(SqsExtendedClientError::NoMessageBody),
-            Some(msg_bdy) => message_body = msg_bdy,
-        }
+            Some(msg_bdy) => msg_bdy,
+        };
 
         let result: Result<SendMessageOutput, SdkError<SendMessageError, Response>> = if self
             .always_through_s3
-            || self.message_exceeds_threshold(message_body, &msg_input.get_message_attributes())
+            || self.message_exceeds_threshold(message_body, msg_input.get_message_attributes())
         {
             let s3_key: String = self.s3_key(Uuid::new_v4().to_string());
 
@@ -182,7 +180,7 @@ impl SqsExtendedClient {
 
             let new_msg: S3Pointer = S3Pointer {
                 s3_bucket_name: bucket_name,
-                s3_key: s3_key,
+                s3_key,
                 class: self.pointer_class.clone(),
             };
 
@@ -202,7 +200,7 @@ impl SqsExtendedClient {
             msg_input.send().await
         };
 
-        result.map_err(|sqs_error| SqsExtendedClientError::SqsSendMessage(sqs_error))
+        result.map_err(SqsExtendedClientError::SqsSendMessage)
     }
 
     pub async fn receive_message(
@@ -225,12 +223,12 @@ impl SqsExtendedClient {
 
             // if any of the message's attributes match the reservedAttributes then found = true and break -> we know we need to 'deref'
             for rsrvd_attr in self.reserved_attributes.iter() {
-                let foo: HashMap<std::string::String, MessageAttributeValue>;
+                
 
-                match &msg.message_attributes {
+                let foo: HashMap<std::string::String, MessageAttributeValue> = match &msg.message_attributes {
                     None => break,
-                    Some(ma) => foo = ma.clone(),
-                }
+                    Some(ma) => ma.clone(),
+                };
 
                 if foo.contains_key(rsrvd_attr.as_str()) {
                     found = true;
@@ -242,17 +240,17 @@ impl SqsExtendedClient {
                 continue;
             }
 
-            let body: String;
-            match &msg.body {
+            
+            let body: String = match &msg.body {
                 None => return Ok(sqs_response), // TODO Think about what we should do if there is no body
-                Some(b) => body = b.to_string(),
-            }
+                Some(b) => b.to_string(),
+            };
 
-            let receipt_handle: String;
-            match &msg.receipt_handle {
+            
+            let receipt_handle: String = match &msg.receipt_handle {
                 None => return Ok(sqs_response), // TODO
-                Some(rh) => receipt_handle = rh.to_string(),
-            }
+                Some(rh) => rh.to_string(),
+            };
 
             let s3_pointer = S3Pointer::unmarshall_json(&body)?;
 
@@ -283,21 +281,21 @@ impl SqsExtendedClient {
         &self,
         mut delete_message_input: DeleteMessageInput,
     ) -> Result<DeleteMessageOutput, SqsExtendedClientError> {
-        let receipt_handle: String;
-        match delete_message_input.receipt_handle {
+        
+        let receipt_handle: String = match delete_message_input.receipt_handle {
             None => panic!("OCEOIC"), // TODO
-            Some(rh) => receipt_handle = rh.to_string(),
-        }
+            Some(rh) => rh.to_string(),
+        };
 
         let (bucket, key, handle) = self.parse_extended_receipt_handle(receipt_handle.clone());
 
-        if bucket != "" && key != "" && handle != "" {
+        if !bucket.is_empty() && !key.is_empty() && !handle.is_empty() {
             delete_message_input.receipt_handle = Some(receipt_handle);
         }
 
         let resp: DeleteMessageOutput = self.sqs_client.delete_message().send().await?;
 
-        if bucket != "" && key != "" {
+        if !bucket.is_empty() && !key.is_empty() {
             self.s3_client
                 .delete_object()
                 .bucket(bucket)
@@ -306,22 +304,22 @@ impl SqsExtendedClient {
                 .await?;
         }
 
-        return Ok(resp);
+        Ok(resp)
     }
 
     pub async fn change_message_visibility(
         &self,
         mut change_message_visibility: ChangeMessageVisibilityInput,
     ) -> Result<ChangeMessageVisibilityOutput, SqsExtendedClientError> {
-        let receipt_handle: String;
-        match change_message_visibility.receipt_handle {
+        
+        let receipt_handle: String = match change_message_visibility.receipt_handle {
             None => panic!("OCEOIC"), // TODO
-            Some(rh) => receipt_handle = rh.to_string(),
-        }
+            Some(rh) => rh.to_string(),
+        };
 
         let (bucket, key, handle) = self.parse_extended_receipt_handle(receipt_handle.clone());
 
-        if bucket != "" && key != "" && handle != "" {
+        if !bucket.is_empty() && !key.is_empty() && !handle.is_empty() {
             change_message_visibility.receipt_handle = Some(receipt_handle);
         }
 
@@ -360,25 +358,25 @@ impl SqsExtendedClient {
     fn calc_attribute_size(&self, attributes: &HashMap<String, MessageAttributeValue>) -> usize {
         let mut sum: usize = 0;
         for (k, v) in attributes {
-            sum = sum + k.len();
+            sum += k.len();
 
             match &v.binary_value {
                 None => {}
                 Some(blob) => {
-                    sum = sum + blob.as_ref().len();
+                    sum += blob.as_ref().len();
                 }
             }
             match &v.string_value {
                 None => {}
-                Some(string) => sum = sum + string.len(),
+                Some(string) => sum += string.len(),
             }
-            sum = sum + v.data_type.len();
+            sum += v.data_type.len();
         }
         sum
     }
 
     fn s3_key(&self, filename: String) -> String {
-        if self.object_prefix != "" {
+        if !self.object_prefix.is_empty() {
             return format!("{}/{}", self.object_prefix, filename);
         }
         filename
@@ -388,7 +386,7 @@ impl SqsExtendedClient {
         let s3_bucket_name_marker: String = "-..s3BucketName..-".to_string();
         let s3_key_marker: String = "-..s3Key..-".to_string();
 
-        return format!(
+        format!(
             "{}{}{}{}{}{}{}",
             s3_bucket_name_marker,
             bucket,
@@ -398,7 +396,7 @@ impl SqsExtendedClient {
             s3_key_marker,
             handle
         )
-        .to_string();
+        .to_string()
     }
 
     // TODO: handle errors
@@ -415,7 +413,7 @@ impl SqsExtendedClient {
         let key: String = caps.get(2).unwrap().as_str().to_string();
         let receipt_handle: String = caps.get(3).unwrap().as_str().to_string();
 
-        return (bucket, key, receipt_handle);
+        (bucket, key, receipt_handle)
     }
 }
 
@@ -442,10 +440,10 @@ struct S3Pointer {
 impl S3Pointer {
     fn marshall_json(self) -> String {
         // TODO: maybe replace this now we have to use serde anyway...
-        String::from(format!(
+        format!(
             "[\"{}\",{{\"s3BucketName\":\"{}\",\"s3Key\":\"{}\"}}]",
             self.class, self.s3_bucket_name, self.s3_key
-        ))
+        )
     }
 
     fn unmarshall_json(input: &str) -> SerdeJsonResult<S3Pointer> {
