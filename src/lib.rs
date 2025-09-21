@@ -133,7 +133,6 @@ impl SqsExtendedClientBuilder {
 pub struct SqsExtendedClient {
     s3_client: aws_sdk_s3::Client,
     sqs_client: aws_sdk_sqs::Client,
-    // logger here in Go implementation
     bucket_name: Option<String>,
     message_size_threshold: usize,
     always_through_s3: bool,
@@ -435,19 +434,7 @@ impl S3Pointer {
             class: wrapper.0,
         };
 
-        println!("S3 POINTER: {}", s3_pointer);
         Ok(s3_pointer)
-    }
-}
-
-// TODO: REMOVE 👇
-impl fmt::Display for S3Pointer {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "S3Pointer {{ s3_bucket_name: {}, s3_key: {}, class: {} }}",
-            self.s3_bucket_name, self.s3_key, self.class
-        )
     }
 }
 
