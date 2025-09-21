@@ -6,6 +6,12 @@
 
 # THIS REPO IS A WIP
 
+--------------------------------------------------------------------------------
+
+`sqs-extended-client-rust` is an extension to the Amazon SQS Client that enables
+sending and receiving messages up to 2GB via Amazon S3. It is very similar to the
+[SQS Extended Client for Java](https://github.com/awslabs/amazon-sqs-java-extended-client-lib), but has an adjusted API to be more Rust friendly.
+
 ## Installation
 
 ```sh
