@@ -225,12 +225,12 @@ impl SqsExtendedClient {
             for rsrvd_attr in self.reserved_attributes.iter() {
                 
 
-                let foo: HashMap<std::string::String, MessageAttributeValue> = match &msg.message_attributes {
+                let msg_attrs: HashMap<std::string::String, MessageAttributeValue> = match &msg.message_attributes {
                     None => break,
                     Some(ma) => ma.clone(),
                 };
 
-                if foo.contains_key(rsrvd_attr.as_str()) {
+                if msg_attrs.contains_key(rsrvd_attr.as_str()) {
                     found = true;
                     break;
                 }
@@ -622,19 +622,12 @@ mod tests {
                 .with_object_prefix("object-prefix".to_string())
                 .build();
 
-        let bucket_name: String;
-        match sqs_extended_client.bucket_name {
-            None => {
-                bucket_name = String::from("");
-            }
-            Some(bn) => {
-                bucket_name = bn;
-            }
-        }
+        let bucket_name: String = sqs_extended_client.bucket_name.unwrap_or_default();
+        assert_eq!("", bucket_name);
 
         assert_eq!("bucket-name", bucket_name);
         assert_eq!(9999, sqs_extended_client.message_size_threshold);
-        assert_eq!(true, sqs_extended_client.always_through_s3);
+        assert!(sqs_extended_client.always_through_s3);
         assert_eq!(
             vec!["attr_one".to_string(), "attr_two".to_string()],
             sqs_extended_client.reserved_attributes
@@ -648,22 +641,15 @@ mod tests {
         let sqs_extended_client: SqsExtendedClient =
             SqsExtendedClientBuilder::new(make_test_s3_client(), make_test_sqs_client()).build();
 
-        let bucket_name: String;
-        match sqs_extended_client.bucket_name {
-            None => {
-                bucket_name = String::from("");
-            }
-            Some(bn) => {
-                bucket_name = bn;
-            }
-        }
-
+        let bucket_name: String = sqs_extended_client.bucket_name.unwrap_or_default();
+        assert_eq!("", bucket_name);
+        
         assert_eq!("", bucket_name);
         assert_eq!(
             MAX_MESSAGE_SIZE_IN_BYTES,
             sqs_extended_client.message_size_threshold
         );
-        assert_eq!(false, sqs_extended_client.always_through_s3);
+        assert!(!sqs_extended_client.always_through_s3);
         assert_eq!(
             vec![
                 "ExtendedPayloadSize".to_string(),
@@ -696,7 +682,7 @@ mod tests {
         let msg_body: &String = msg.get_message_body().as_ref().unwrap();
 
         let result: bool = sqs_extended_client_small_msg_size_threshold
-            .message_exceeds_threshold(&msg_body, &msg.get_message_attributes());
+            .message_exceeds_threshold(msg_body, msg.get_message_attributes());
 
         assert!(result);
 
@@ -704,7 +690,7 @@ mod tests {
             SqsExtendedClientBuilder::new(make_test_s3_client(), make_test_sqs_client()).build();
 
         let result_2: bool = sqs_extended_client_default
-            .message_exceeds_threshold(&msg_body, &msg.get_message_attributes());
+            .message_exceeds_threshold(msg_body, msg.get_message_attributes());
 
         assert!(!result_2);
     }
