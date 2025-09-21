@@ -112,15 +112,6 @@ impl SqsExtendedClientBuilder {
     }
 
     pub fn build(self) -> SqsExtendedClient {
-        let ptr: S3Pointer = S3Pointer {
-            s3_bucket_name: String::from(""),
-            s3_key: Uuid::new_v4().to_string(),
-            class: self.pointer_class.clone(),
-        };
-
-        let base_attribute_size: usize =
-            self.reserved_attributes[0].len() + "Number".to_string().len();
-        
         let receipt_handler_regex: Regex = Regex::new(r"^-\.\.s3BucketName\.\.-(.*)-\.\.s3BucketName\.\.--\.\.s3Key\.\.-(.*)-\.\.s3Key\.\.-(.*)").unwrap();
 
         SqsExtendedClient {
@@ -128,13 +119,10 @@ impl SqsExtendedClientBuilder {
             sqs_client: self.sqs_client,
             bucket_name: self.bucket_name,
             message_size_threshold: self.message_size_threshold,
-            batch_messages_size_threshold: self.batch_message_size_threshold,
             always_through_s3: self.always_s3,
             pointer_class: self.pointer_class,
             reserved_attributes: self.reserved_attributes,
             object_prefix: self.object_prefix,
-            base_s3_pointer_size: ptr.marshall_json().len(),
-            base_attribute_size: base_attribute_size,
             extended_receipt_handler_regex: receipt_handler_regex
         }
     }
@@ -148,13 +136,10 @@ pub struct SqsExtendedClient {
     // logger here in Go implementation
     bucket_name: Option<String>,
     message_size_threshold: usize,
-    batch_messages_size_threshold: usize,
     always_through_s3: bool,
     pointer_class: String,
     reserved_attributes: Vec<String>,
     object_prefix: String,
-    base_s3_pointer_size: usize,
-    base_attribute_size: usize,
     extended_receipt_handler_regex: Regex,
 }
 
@@ -635,7 +620,6 @@ mod tests {
 
         assert_eq!("bucket-name", bucket_name);
         assert_eq!(9999, sqs_extended_client.message_size_threshold);
-        assert_eq!(1000, sqs_extended_client.batch_messages_size_threshold);
         assert_eq!(true, sqs_extended_client.always_through_s3);
         assert_eq!(
             vec!["attr_one".to_string(), "attr_two".to_string()],
@@ -643,8 +627,6 @@ mod tests {
         );
         assert_eq!("pointer-class", sqs_extended_client.pointer_class);
         assert_eq!("object-prefix", sqs_extended_client.object_prefix);
-        assert_eq!(84, sqs_extended_client.base_s3_pointer_size);
-        assert_eq!(14, sqs_extended_client.base_attribute_size);
     }
 
     #[test]
@@ -667,10 +649,6 @@ mod tests {
             MAX_MESSAGE_SIZE_IN_BYTES,
             sqs_extended_client.message_size_threshold
         );
-        assert_eq!(
-            MAX_MESSAGE_SIZE_IN_BYTES,
-            sqs_extended_client.batch_messages_size_threshold
-        );
         assert_eq!(false, sqs_extended_client.always_through_s3);
         assert_eq!(
             vec![
@@ -681,8 +659,6 @@ mod tests {
         );
         assert_eq!(DEFAULT_POINTER_CLASS, sqs_extended_client.pointer_class);
         assert_eq!("", sqs_extended_client.object_prefix);
-        assert_eq!(121, sqs_extended_client.base_s3_pointer_size);
-        assert_eq!(25, sqs_extended_client.base_attribute_size);
     }
 
     // send_message
