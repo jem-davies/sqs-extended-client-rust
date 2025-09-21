@@ -717,7 +717,7 @@ mod tests {
 
         assert!(result_2.total() == 33);
 
-        // ADD BINARY VALUE
+        // TODO ADD BINARY VALUE
 
     }
 
