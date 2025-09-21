@@ -145,14 +145,12 @@ impl SqsExtendedClient {
         &self,
         msg_input: SendMessageFluentBuilder,
     ) -> Result<SendMessageOutput, SqsExtendedClientError> {
-        
         let bucket_name: String = match &self.bucket_name {
             // TODO replace with a let-else statement
             None => return Err(SqsExtendedClientError::NoBucketName),
             Some(bn) => bn.to_string(),
         };
 
-        
         let message_body: &str = match msg_input.get_message_body() {
             // TODO replace with a let-else statement
             None => return Err(SqsExtendedClientError::NoMessageBody),
@@ -223,12 +221,11 @@ impl SqsExtendedClient {
 
             // if any of the message's attributes match the reservedAttributes then found = true and break -> we know we need to 'deref'
             for rsrvd_attr in self.reserved_attributes.iter() {
-                
-
-                let msg_attrs: HashMap<String, MessageAttributeValue> = match &msg.message_attributes {
-                    None => break,
-                    Some(ma) => ma.clone(),
-                };
+                let msg_attrs: HashMap<String, MessageAttributeValue> =
+                    match &msg.message_attributes {
+                        None => break,
+                        Some(ma) => ma.clone(),
+                    };
 
                 if msg_attrs.contains_key(rsrvd_attr.as_str()) {
                     found = true;
@@ -240,13 +237,11 @@ impl SqsExtendedClient {
                 continue;
             }
 
-            
             let body: String = match &msg.body {
                 None => return Ok(sqs_response), // TODO Think about what we should do if there is no body
                 Some(b) => b.to_string(),
             };
 
-            
             let receipt_handle: String = match &msg.receipt_handle {
                 None => return Ok(sqs_response), // TODO
                 Some(rh) => rh.to_string(),
@@ -281,7 +276,6 @@ impl SqsExtendedClient {
         &self,
         mut delete_message_input: DeleteMessageInput,
     ) -> Result<DeleteMessageOutput, SqsExtendedClientError> {
-        
         let receipt_handle: String = match delete_message_input.receipt_handle {
             None => panic!("OCEOIC"), // TODO
             Some(rh) => rh.to_string(),
@@ -311,7 +305,6 @@ impl SqsExtendedClient {
         &self,
         mut change_message_visibility: ChangeMessageVisibilityInput,
     ) -> Result<ChangeMessageVisibilityOutput, SqsExtendedClientError> {
-        
         let receipt_handle: String = match change_message_visibility.receipt_handle {
             None => panic!("OCEOIC"), // TODO
             Some(rh) => rh.to_string(),
@@ -624,8 +617,6 @@ mod tests {
                 .build();
 
         let bucket_name: String = sqs_extended_client.bucket_name.unwrap_or_default();
-        assert_eq!("", bucket_name);
-
         assert_eq!("bucket-name", bucket_name);
         assert_eq!(9999, sqs_extended_client.message_size_threshold);
         assert!(sqs_extended_client.always_through_s3);
@@ -643,7 +634,6 @@ mod tests {
             SqsExtendedClientBuilder::new(make_test_s3_client(), make_test_sqs_client()).build();
 
         let bucket_name: String = sqs_extended_client.bucket_name.unwrap_or_default();
-        assert_eq!("", bucket_name);
         
         assert_eq!("", bucket_name);
         assert_eq!(

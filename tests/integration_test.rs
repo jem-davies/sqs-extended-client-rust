@@ -174,12 +174,10 @@ async fn create_localstack_with_bucket_and_queue() -> Result<
         .send()
         .await?;
 
-    let list_result: ListQueuesOutput =
-        sqs_client.list_queues().send().await?;
+    let list_result: ListQueuesOutput = sqs_client.list_queues().send().await?;
     assert_eq!(list_result.queue_urls().len(), 1);
 
-    let bucket_list: ListBucketsOutput =
-        s3_client.list_buckets().send().await?;
+    let bucket_list: ListBucketsOutput = s3_client.list_buckets().send().await?;
     assert_eq!(bucket_list.buckets().len(), 1);
 
     let queue_url = list_result
