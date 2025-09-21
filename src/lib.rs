@@ -730,7 +730,7 @@ mod tests {
             .data_type(String::from("String"))
             .string_value(String::from("some string"))
             .build()
-            .expect("Failed to build MessageAttributeValue");
+            .expect("Failed to build MessageAttributeValue"); // TODO - this message not right...
 
         let mut hm: HashMap<String, MessageAttributeValue> = HashMap::new();
         hm.insert(String::from("testing_strings"), reserved_attribute);

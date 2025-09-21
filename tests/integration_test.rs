@@ -1,5 +1,9 @@
+use std::collections::HashMap;
+
 use aws_config::{BehaviorVersion, Region, meta::region::RegionProviderChain};
-use aws_sdk_sqs::{self, operation::send_message::builders::SendMessageFluentBuilder};
+use aws_sdk_s3::operation::get_object::GetObjectOutput;
+use aws_sdk_sqs::{self, operation::{receive_message::builders::ReceiveMessageFluentBuilder, send_message::builders::SendMessageFluentBuilder}, types::{MessageAttributeValue}};
+use aws_sdk_sqs::operation::receive_message::ReceiveMessageOutput;
 use sqs_extended_client::{SqsExtendedClient, SqsExtendedClientBuilder};
 use testcontainers_modules::{
     localstack::{self, LocalStack},
@@ -11,22 +15,51 @@ async fn send_message_always_through_s3() -> Result<(), Box<dyn std::error::Erro
     let (node, _endpoint_url, queue_url, s3_client, sqs_client) =
         create_localstack_with_bucket_and_queue().await?;
 
-    let clone_sqs_client: aws_sdk_sqs::Client = sqs_client.clone();
+    let send_clone_sqs_client: aws_sdk_sqs::Client = sqs_client.clone();
+    let receive_clone_sqs_client: aws_sdk_sqs::Client = sqs_client.clone();
     let sqs_extended_client: SqsExtendedClient =
         SqsExtendedClientBuilder::new(s3_client.clone(), sqs_client)
             .with_s3_bucket_name("sqs-extended-client-bucket".to_string())
             .with_always_through_s3(true)
             .build();
 
-    let msg_input: SendMessageFluentBuilder = clone_sqs_client
+    let msg_input: SendMessageFluentBuilder = send_clone_sqs_client
         .send_message()
-        .queue_url(queue_url)
-        .message_body("HELLO SQS FROM RUST! :)");
+        .queue_url(&queue_url)
+        .message_body("hello SQS! with love from the sqs-extended-client-rust 😊");
 
     sqs_extended_client.send_message(msg_input).await?;
 
-    // TODO: actually check the contents of the file & sqs message pointer
+    let receive_msg: ReceiveMessageFluentBuilder = receive_clone_sqs_client.receive_message().queue_url(&queue_url);
 
+    let response:ReceiveMessageOutput = sqs_extended_client.receive_message(receive_msg).await?;
+
+    let msgs:Vec<aws_sdk_sqs::types::Message> = response.messages.clone().unwrap_or_default();
+
+    assert_eq!(msgs.len(), 1); 
+    assert_eq!(msgs[0].body.as_ref().unwrap(), "hello SQS! with love from the sqs-extended-client-rust 😊");
+
+    let reserved_attribute = MessageAttributeValue::builder()
+        .data_type("Number")
+        .string_value("59")
+        .build()?;
+
+    let attributes: HashMap<std::string::String, MessageAttributeValue> = msgs[0].message_attributes.clone().unwrap();
+
+    let expected_attributes: HashMap<String, MessageAttributeValue> = HashMap::from([
+        ("ExtendedPayloadSize".to_string(), reserved_attribute),
+    ]);
+
+
+    assert_eq!(attributes, expected_attributes);
+
+    // Check the receipt handle - and use the values to check for the S3 Object!
+    let receipt_handle = msgs[0].receipt_handle.clone().unwrap();
+
+    let s3_bucket: &str = receipt_handle.split("-..s3BucketName..-").nth(1).unwrap().split("-..s3BucketName..-").next().unwrap();
+    let s3_key: &str = receipt_handle.split("-..s3Key..-").nth(1).unwrap().split("-..s3Key..-").next().unwrap();
+
+    // get the file contents from s3 as a string: 
     let list_objects_output = s3_client
         .list_objects_v2()
         .bucket("sqs-extended-client-bucket")
@@ -35,11 +68,22 @@ async fn send_message_always_through_s3() -> Result<(), Box<dyn std::error::Erro
 
     let contents = list_objects_output.contents();
 
-    for object in contents {
-        if let Some(key) = object.key() {
-            println!("Found object in bucket: {}", key);
-        }
-    }
+    assert_eq!(contents.len(), 1);
+    assert_eq!(contents[0].key().unwrap(), s3_key);
+
+    let object: GetObjectOutput = s3_client
+        .get_object()
+        .bucket(s3_bucket)
+        .key(s3_key)
+        .send()
+        .await?;
+
+    let bytes    = object.body.collect().await?.into_bytes();
+    let response: &str = std::str::from_utf8(&bytes)?;
+
+    println!("\n\n{}\n\n", response);
+
+    assert_eq!(response, "hello SQS! with love from the sqs-extended-client-rust 😊");
 
     let _rm = node.rm();
 
