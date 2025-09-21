@@ -754,6 +754,8 @@ mod tests {
 
         assert!(result_2.total() == 33);
 
+        // ADD BINARY VALUE
+
     }
 
     #[test]
@@ -820,5 +822,32 @@ mod tests {
         assert!(bucket == "BUCKET");
         assert!(key == "KEY");
         assert!(receipt_handle == "HANDLE");
+    }
+
+    #[test]
+    fn test_marshall_json() {
+        let sqs_extended_client: SqsExtendedClient = 
+            SqsExtendedClientBuilder::new(make_test_s3_client(), make_test_sqs_client()).build();
+
+        let s3_pointer: S3Pointer = S3Pointer {
+            s3_bucket_name: "BUCKET".to_string(),
+            s3_key: "KEY".to_string(),
+            class: sqs_extended_client.pointer_class.clone(),
+        };
+
+        let json_s3_pointer: String = s3_pointer.marshall_json();
+
+        assert!(json_s3_pointer == r#"["software.amazon.payloadoffloading.PayloadS3Pointer",{"s3BucketName":"BUCKET","s3Key":"KEY"}]"#);
+    }
+
+    #[test]
+    fn test_unmarshall_json() {
+        let s3_pointer_str: &str = r#"["software.amazon.payloadoffloading.PayloadS3Pointer",{"s3BucketName":"BUCKET","s3Key":"KEY"}]"#;
+
+        let s3_pointer_struct: S3Pointer = S3Pointer::unmarshall_json(s3_pointer_str).expect("s3_pointer unmarshall failed");
+
+        assert!(s3_pointer_struct.s3_bucket_name == "BUCKET");
+        assert!(s3_pointer_struct.s3_key == "KEY");
+        assert!(s3_pointer_struct.class == SqsExtendedClientBuilder::new(make_test_s3_client(), make_test_sqs_client()).build().pointer_class.clone());
     }
 }
