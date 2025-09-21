@@ -185,7 +185,7 @@ impl SqsExtendedClient {
                 .put_object()
                 .bucket(&bucket_name)
                 .key(&s3_key)
-                .body(self.convert_string_byte_stream(message_body))
+                .body(ByteStream::from(message_body.as_bytes().to_vec()))
                 .send()
                 .await;
 
@@ -228,7 +228,7 @@ impl SqsExtendedClient {
         };
 
         // CHECK ALL THIS CRAP 👇
-        for msg in messages.iter_mut() { // .iter() / .into_iter() / .iter_mut()
+        for msg in messages.iter_mut() {
             let mut found: bool = false;
 
             // if any of the message's attributes match the reservedAttributes then found = true and break -> we know we need to 'deref' 
@@ -276,7 +276,7 @@ impl SqsExtendedClient {
             let response: &str = std::str::from_utf8(&bytes)?;
 
             msg.body = Some(response.to_string());
-            msg.receipt_handle = Some(self.new_extended_receipt_handle(s3_pointer.s3_bucket_name.clone(), s3_pointer.s3_key.clone(), receipt_handle))
+            msg.receipt_handle = Some(Self::new_extended_receipt_handle(s3_pointer.s3_bucket_name.clone(), s3_pointer.s3_key.clone(), receipt_handle))
         }
 
         sqs_response.messages = Some(messages); 
@@ -379,10 +379,6 @@ impl SqsExtendedClient {
         sum
     }
 
-    fn convert_string_byte_stream(&self, s: &str) -> ByteStream {
-        ByteStream::from(s.as_bytes().to_vec())
-    }
-
     fn s3_key(&self, filename: String) -> String {
         if self.object_prefix != "" {
             return format!("{}/{}", self.object_prefix, filename);
@@ -390,7 +386,7 @@ impl SqsExtendedClient {
         filename
     }
 
-    fn new_extended_receipt_handle(&self, bucket: String, key: String, handle: String) -> String {
+    fn new_extended_receipt_handle(bucket: String, key: String, handle: String) -> String {
         let s3_bucket_name_marker: String = "-..s3BucketName..-".to_string();
         let s3_key_marker: String = "-..s3Key..-".to_string();
 
@@ -689,6 +685,77 @@ mod tests {
         assert_eq!(25, sqs_extended_client.base_attribute_size);
     }
 
+    // send_message
+    // receive_message
+    // delete_message
+    // change_message_visibility
+    
+    #[test]
+    fn test_message_exceeds_threshold() {
+        // need table tests -> macros in rust apparently ... 
+        let sqs_extended_client_small_msg_size_threshold: SqsExtendedClient =
+        SqsExtendedClientBuilder::new(make_test_s3_client(), make_test_sqs_client())
+            .with_message_size_threshold(8)
+            .build();
+
+        let msg: SendMessageFluentBuilder = make_test_sqs_client()
+            .send_message()
+            .queue_url("queue_url")
+            .message_body("hello world");
+
+        let msg_body:&String = msg.get_message_body().as_ref().unwrap();
+        
+        let result: bool = sqs_extended_client_small_msg_size_threshold.message_exceeds_threshold(&msg_body, &msg.get_message_attributes());
+
+        assert!(result);
+
+        let sqs_extended_client_default: SqsExtendedClient =
+        SqsExtendedClientBuilder::new(make_test_s3_client(), make_test_sqs_client())
+            .build();
+
+        let result_2: bool = sqs_extended_client_default.message_exceeds_threshold(&msg_body, &msg.get_message_attributes());
+    
+        assert!(!result_2);
+    }   
+
+
+    #[test]
+    fn test_message_size() {
+        let sqs_extended_client: SqsExtendedClient = 
+        SqsExtendedClientBuilder::new(make_test_s3_client(), make_test_sqs_client())
+            .build();
+
+        let msg: SendMessageFluentBuilder = make_test_sqs_client()
+            .send_message()
+            .queue_url("queue_url")
+            .message_body("hello world");
+
+        let msg_body:&String = msg.get_message_body().as_ref().unwrap();
+
+        let result: MessageSize = sqs_extended_client.message_size(msg_body, msg.get_message_attributes());
+        
+        assert!(result.total() == 11);
+
+        let attribute_value: MessageAttributeValue = MessageAttributeValue::builder()
+            .data_type("Number")
+            .string_value("12")
+            .build()
+            .expect("Failed to build MessageAttributeValue");
+
+        let msg_with_attributes: SendMessageFluentBuilder = make_test_sqs_client()
+            .send_message()
+            .queue_url("queue_url")
+            .message_body("hello world")
+            .message_attributes("test_attribute", attribute_value);
+
+        let msg_with_attributes_body: &String = msg_with_attributes.get_message_body().as_ref().unwrap();
+
+        let result_2: MessageSize = sqs_extended_client.message_size(msg_with_attributes_body, msg_with_attributes.get_message_attributes());
+
+        assert!(result_2.total() == 33);
+
+    }
+
     #[test]
     fn test_calc_attribute_size() {
         let sqs_extended_client: SqsExtendedClient =
@@ -727,5 +794,31 @@ mod tests {
             sqs_extended_client_with_prefix
                 .s3_key(String::from("00000000-0000-0000-0000-000000000000"))
         )
+    }
+
+    #[test]
+    fn test_new_extended_receipt_handle() {
+
+    let bucket: String = "BUCKET".to_string();
+    let key: String = "KEY".to_string();
+    let handle: String = "HANDLE".to_string();
+
+    let result: String = SqsExtendedClient::new_extended_receipt_handle(bucket, key, handle);
+
+    assert!(result == "-..s3BucketName..-BUCKET-..s3BucketName..--..s3Key..-KEY-..s3Key..-HANDLE");
+    }
+
+    #[test]
+    fn test_parse_extended_receipt_handle() {
+        let sqs_extended_client: SqsExtendedClient =
+            SqsExtendedClientBuilder::new(make_test_s3_client(), make_test_sqs_client()).build();
+
+        let extended_receipt_handler: String = "-..s3BucketName..-BUCKET-..s3BucketName..--..s3Key..-KEY-..s3Key..-HANDLE".to_string();
+
+        let (bucket, key, receipt_handle) = sqs_extended_client.parse_extended_receipt_handle(extended_receipt_handler);
+
+        assert!(bucket == "BUCKET");
+        assert!(key == "KEY");
+        assert!(receipt_handle == "HANDLE");
     }
 }
