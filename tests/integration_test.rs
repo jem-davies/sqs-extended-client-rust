@@ -81,8 +81,6 @@ async fn send_message_always_through_s3() -> Result<(), Box<dyn std::error::Erro
     let bytes    = object.body.collect().await?.into_bytes();
     let response: &str = std::str::from_utf8(&bytes)?;
 
-    println!("\n\n{}\n\n", response);
-
     assert_eq!(response, "hello SQS! with love from the sqs-extended-client-rust 😊");
 
     let _rm = node.rm();

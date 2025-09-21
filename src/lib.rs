@@ -148,13 +148,13 @@ impl SqsExtendedClient {
         msg_input: SendMessageFluentBuilder,
     ) -> Result<SendMessageOutput, SqsExtendedClientError> {
         let bucket_name: String;
-        match &self.bucket_name { // replace with a let-else statement
+        match &self.bucket_name { // TODO replace with a let-else statement
             None => return Err(SqsExtendedClientError::NoBucketName),
             Some(bn) => bucket_name = bn.to_string(),
         }
 
         let message_body: &str;
-        match msg_input.get_message_body() { // replace with a let-else statement
+        match msg_input.get_message_body() { // TODO replace with a let-else statement
             None => return Err(SqsExtendedClientError::NoMessageBody),
             Some(msg_bdy) => message_body = msg_bdy,
         }
@@ -211,7 +211,7 @@ impl SqsExtendedClient {
             Some(msgs) => msgs.clone(),
         };
 
-        // CHECK ALL THIS CRAP 👇
+        // TODO CHECK ALL THIS 👇
         for msg in messages.iter_mut() {
             let mut found: bool = false;
 
@@ -425,7 +425,7 @@ impl S3Pointer {
         ))
     }
 
-    fn unmarshall_json(input: &str) -> SerdeJsonResult<S3Pointer> {  // Could be considered the constructor? 
+    fn unmarshall_json(input: &str) -> SerdeJsonResult<S3Pointer> {
         let wrapper: S3PointerArray = serde_json::from_str(input)?;
     
         let s3_pointer: S3Pointer = S3Pointer {
