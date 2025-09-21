@@ -578,6 +578,7 @@ impl std::error::Error for SqsExtendedClientError {}
 #[cfg(test)]
 mod tests {
     use aws_config::BehaviorVersion;
+    use aws_smithy_types::Blob;
 
     use super::*;
 
@@ -712,9 +713,15 @@ mod tests {
 
         assert!(result.total() == 11);
 
-        let attribute_value: MessageAttributeValue = MessageAttributeValue::builder()
+        let attribute_value_number: MessageAttributeValue = MessageAttributeValue::builder()
             .data_type("Number")
             .string_value("12")
+            .build()
+            .expect("Failed to build MessageAttributeValue");
+
+        let attribute_value_binary: MessageAttributeValue = MessageAttributeValue::builder()
+            .data_type("Binary")
+            .binary_value(Blob::new("IT'S BINARY HONEST"))
             .build()
             .expect("Failed to build MessageAttributeValue");
 
@@ -722,7 +729,8 @@ mod tests {
             .send_message()
             .queue_url("queue_url")
             .message_body("hello world")
-            .message_attributes("test_attribute", attribute_value);
+            .message_attributes("test_attribute_one", attribute_value_number)
+            .message_attributes("test_attribute_two", attribute_value_binary);
 
         let msg_with_attributes_body: &String =
             msg_with_attributes.get_message_body().as_ref().unwrap();
@@ -732,9 +740,7 @@ mod tests {
             msg_with_attributes.get_message_attributes(),
         );
 
-        assert!(result_2.total() == 33);
-
-        // TODO ADD BINARY VALUE
+        assert!(result_2.total() == 79);
     }
 
     #[test]
@@ -746,7 +752,7 @@ mod tests {
             .data_type(String::from("String"))
             .string_value(String::from("some string"))
             .build()
-            .expect("Failed to build MessageAttributeValue"); // TODO - this message not right...
+            .expect("build MessageAttrbuteValue should not fail");
 
         let mut hm: HashMap<String, MessageAttributeValue> = HashMap::new();
         hm.insert(String::from("testing_strings"), reserved_attribute);

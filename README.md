@@ -93,15 +93,11 @@ async fn main() -> Result<(), SqsExtendedClientError> {
     - change_message_visibility     ✅
 - TODOs                               
     - match -> let-else             ❌
-    - `.to_string()` & `.clone()`   ❌
     - 100% error handling           ❌
-    - marshall_json -> serde        ❌
     - review rcv_msg() looping etc. ❌
-    - async handling of rcv_msg     ❌
-    - msg attr names = "ALL"        ❌
 - UNIT TESTS
     - for private/pure fns          ✅
-    - 2 small TODOs                 ❌
+    - 2 small TODOs                 ✅
     - mocked public/non-pure fns    ❌
 - LOCAL STACK INT. TESTS            
     - send_message                  ✅
@@ -123,3 +119,7 @@ async fn main() -> Result<(), SqsExtendedClientError> {
 
 - Add Batch functions
 - Deal with SQS & Lambda events
+- `.to_string()` & `.clone()`
+- marshall_json -> serde
+- async handling of rcv_msg
+- msg attr names = "ALL"
