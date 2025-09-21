@@ -22,41 +22,36 @@ cargo add sqs-extended-client
 
 ```rust
 use aws_config::BehaviorVersion;
-use aws_sdk_sqs::operation::{receive_message::builders::ReceiveMessageFluentBuilder, send_message::builders::SendMessageFluentBuilder};
+use aws_sdk_sqs::operation::{receive_message::{builders::ReceiveMessageFluentBuilder, ReceiveMessageOutput}, send_message::builders::SendMessageFluentBuilder};
 use sqs_extended_client::{SqsExtendedClient, SqsExtendedClientBuilder, SqsExtendedClientError};
-use std::env;
 
 #[::tokio::main]
 async fn main() -> Result<(), SqsExtendedClientError> {
     // get a sqs_queue_url & s3_bucket_name
-    let sqs_queue_url: String = env::var("SQS_QUEUE_URL").unwrap();
-    let s3_bucket_name: String = env::var("S3_BUCKET_NAME").unwrap();
+    let sqs_queue_url: String = "rusty-extended-queue".to_string();
+    let s3_bucket_name: String = "rusty-bucket".to_string();
 
     // create an aws_config
     let config: aws_config::SdkConfig =
         aws_config::load_defaults(BehaviorVersion::v2025_01_17()).await;
 
-    // create an s3_client
+    // create an s3 client
     let s3_client: aws_sdk_s3::Client = aws_sdk_s3::Client::new(&config);
 
-    // create multiple sqs clients...
+    // create an sqs client
     let sqs_client: aws_sdk_sqs::Client = aws_sdk_sqs::Client::new(&config);
-    let sender_sqs_client: aws_sdk_sqs::Client = sqs_client.clone();
-    let receiver_sqs_client: aws_sdk_sqs::Client = sqs_client.clone();
 
     // use the SqsExtendedClientBuilder to create a SqsExtendedClient
     let sqs_extended_client: SqsExtendedClient =
-        SqsExtendedClientBuilder::new(s3_client, sqs_client)
+        SqsExtendedClientBuilder::new(s3_client, sqs_client.clone())
             .with_s3_bucket_name(s3_bucket_name)
-            .with_always_through_s3(true)
-            .with_message_size_threshold(2)
             .build();
 
     // Create a large message of size 12MiB
     let large_message: String = "X".repeat(12 * 1024 * 1024);
 
     // Create a "send message request" 
-    let msg_input: SendMessageFluentBuilder = sender_sqs_client
+    let msg_input: SendMessageFluentBuilder = sqs_client
         .send_message()
         .queue_url(&sqs_queue_url)
         .message_body(large_message);
@@ -65,7 +60,7 @@ async fn main() -> Result<(), SqsExtendedClientError> {
     sqs_extended_client.send_message(msg_input).await?;
 
     // Create a "receive message request" 
-    let receive_msg: ReceiveMessageFluentBuilder = receiver_sqs_client.receive_message().queue_url(sqs_queue_url);
+    let receive_msg: ReceiveMessageFluentBuilder = sqs_client.receive_message().queue_url(sqs_queue_url);
 
     // Sqs Extended Client Receive message
     let rcv:ReceiveMessageOutput = sqs_extended_client.receive_message(receive_msg).await?;
