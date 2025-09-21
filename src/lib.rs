@@ -186,7 +186,7 @@ impl SqsExtendedClient {
 
             let message_body_size: usize = message_body.len();
 
-            let reserved_attribute = MessageAttributeValue::builder()
+            let reserved_attribute: MessageAttributeValue = MessageAttributeValue::builder()
                 .data_type("Number")
                 .string_value(message_body_size.to_string())
                 .build()?;
@@ -225,7 +225,7 @@ impl SqsExtendedClient {
             for rsrvd_attr in self.reserved_attributes.iter() {
                 
 
-                let msg_attrs: HashMap<std::string::String, MessageAttributeValue> = match &msg.message_attributes {
+                let msg_attrs: HashMap<String, MessageAttributeValue> = match &msg.message_attributes {
                     None => break,
                     Some(ma) => ma.clone(),
                 };

@@ -1,8 +1,12 @@
 use std::collections::HashMap;
+use std::str::from_utf8;
 
 use aws_config::{BehaviorVersion, Region, meta::region::RegionProviderChain};
 use aws_sdk_s3::operation::get_object::GetObjectOutput;
+use aws_sdk_s3::operation::list_buckets::ListBucketsOutput;
+use aws_sdk_sqs::operation::list_queues::ListQueuesOutput;
 use aws_sdk_sqs::operation::receive_message::ReceiveMessageOutput;
+use aws_sdk_sqs::types::Message;
 use aws_sdk_sqs::{
     self,
     operation::{
@@ -43,7 +47,7 @@ async fn send_message_always_through_s3() -> Result<(), Box<dyn std::error::Erro
 
     let response: ReceiveMessageOutput = sqs_extended_client.receive_message(receive_msg).await?;
 
-    let msgs: Vec<aws_sdk_sqs::types::Message> = response.messages.clone().unwrap_or_default();
+    let msgs: Vec<Message> = response.messages.clone().unwrap_or_default();
 
     assert_eq!(msgs.len(), 1);
     assert_eq!(
@@ -56,7 +60,7 @@ async fn send_message_always_through_s3() -> Result<(), Box<dyn std::error::Erro
         .string_value("59")
         .build()?;
 
-    let attributes: HashMap<std::string::String, MessageAttributeValue> =
+    let attributes: HashMap<String, MessageAttributeValue> =
         msgs[0].message_attributes.clone().unwrap();
 
     let expected_attributes: HashMap<String, MessageAttributeValue> =
@@ -102,7 +106,7 @@ async fn send_message_always_through_s3() -> Result<(), Box<dyn std::error::Erro
         .await?;
 
     let bytes = object.body.collect().await?.into_bytes();
-    let response: &str = std::str::from_utf8(&bytes)?;
+    let response: &str = from_utf8(&bytes)?;
 
     assert_eq!(
         response,
@@ -170,11 +174,11 @@ async fn create_localstack_with_bucket_and_queue() -> Result<
         .send()
         .await?;
 
-    let list_result: aws_sdk_sqs::operation::list_queues::ListQueuesOutput =
+    let list_result: ListQueuesOutput =
         sqs_client.list_queues().send().await?;
     assert_eq!(list_result.queue_urls().len(), 1);
 
-    let bucket_list: aws_sdk_s3::operation::list_buckets::ListBucketsOutput =
+    let bucket_list: ListBucketsOutput =
         s3_client.list_buckets().send().await?;
     assert_eq!(bucket_list.buckets().len(), 1);
 

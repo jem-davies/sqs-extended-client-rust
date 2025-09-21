@@ -120,7 +120,7 @@ async fn main() -> Result<(), SqsExtendedClientError> {
     - github workflow release       ❌
     - github workflow converage     ✅ -> Doesn't work bogus line count 
     - docs                          ❌
-    - delete main.rs -> README.md   ❌
+    - delete main.rs -> README.md   ✅
 - UPDATE DEPS
     - increase limit to 1MiB        ❌
 
