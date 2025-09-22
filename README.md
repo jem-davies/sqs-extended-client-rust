@@ -98,7 +98,6 @@ async fn main() -> Result<(), SqsExtendedClientError> {
 - UNIT TESTS
     - for private/pure fns          ✅
     - 2 small TODOs                 ✅
-    - mocked public/non-pure fns    ❌
 - LOCAL STACK INT. TESTS            
     - send_message                  ✅
     - receive_message               ✅
@@ -115,12 +114,18 @@ async fn main() -> Result<(), SqsExtendedClientError> {
 - UPDATE DEPS
     - increase limit to 1MiB        ❌
 
-## Future
+## RoadMap
 
-- Add Batch functions
-- Deal with SQS & Lambda events
+### v1.X.X
+
 - `.to_string()` & `.clone()`
 - marshall_json -> serde
 - async handling of rcv_msg
-- receive message, msg attr names = "ALL" -> consider enabling 
 - rustify `parse_extended_receipt_handle`
+- mocked public/non-pure fns
+
+### v2.X.X
+
+- receive message, msg attr names = "ALL" -> consider enabling 
+- Add Batch functions
+- Deal with SQS & Lambda events

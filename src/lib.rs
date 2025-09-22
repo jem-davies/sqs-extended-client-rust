@@ -9,8 +9,9 @@ use aws_sdk_s3::primitives::ByteStreamError;
 use aws_sdk_sqs::operation::change_message_visibility::{
     ChangeMessageVisibilityError, ChangeMessageVisibilityInput, ChangeMessageVisibilityOutput,
 };
+use aws_sdk_sqs::operation::delete_message::builders::DeleteMessageFluentBuilder;
 use aws_sdk_sqs::operation::delete_message::{
-    DeleteMessageError, DeleteMessageInput, DeleteMessageOutput,
+    DeleteMessageError, DeleteMessageOutput,
 };
 use aws_sdk_sqs::operation::receive_message::builders::ReceiveMessageFluentBuilder;
 use aws_sdk_sqs::operation::receive_message::{ReceiveMessageError, ReceiveMessageOutput};
@@ -266,24 +267,27 @@ impl SqsExtendedClient {
         sqs_response.messages = Some(messages);
         Ok(sqs_response)
     }
-
+    
     pub async fn delete_message(
         &self,
-        mut delete_message_input: DeleteMessageInput,
+        mut delete_message_builder: DeleteMessageFluentBuilder,
     ) -> Result<DeleteMessageOutput, SqsExtendedClientError> {
-        let receipt_handle: String = match delete_message_input.receipt_handle {
+    
+        let receipt_handle: String = match delete_message_builder.get_receipt_handle() {
             None => return Err(SqsExtendedClientError::NoReceiptHandle),
             Some(rh) => rh.to_string(),
         };
-
+    
         let (bucket, key, handle) = self.parse_extended_receipt_handle(receipt_handle.clone());
-
+    
         if !bucket.is_empty() && !key.is_empty() && !handle.is_empty() {
-            delete_message_input.receipt_handle = Some(receipt_handle);
+            delete_message_builder = delete_message_builder.set_receipt_handle(Some(handle.clone()));
         }
-
-        let resp: DeleteMessageOutput = self.sqs_client.delete_message().send().await?;
-
+    
+        let resp: DeleteMessageOutput = delete_message_builder
+            .send()
+            .await?;
+    
         if !bucket.is_empty() && !key.is_empty() {
             self.s3_client
                 .delete_object()
@@ -292,7 +296,7 @@ impl SqsExtendedClient {
                 .send()
                 .await?;
         }
-
+    
         Ok(resp)
     }
 
@@ -391,18 +395,21 @@ impl SqsExtendedClient {
         &self,
         extended_receipt_handle: String,
     ) -> (String, String, String) {
-        let caps: regex::Captures<'_> = self
+        let caps = match self
             .extended_receipt_handler_regex
             .captures(&extended_receipt_handle)
-            .unwrap();
+        {
+            Some(caps) => caps,
+            None => return ("".to_string(), "".to_string(), "".to_string()),
+        };
 
         if caps.len() != 4 {
             return ("".to_string(), "".to_string(), "".to_string())
         }
 
-        let bucket: String = caps.get(1).unwrap().as_str().to_string();
-        let key: String = caps.get(2).unwrap().as_str().to_string();
-        let receipt_handle: String = caps.get(3).unwrap().as_str().to_string();
+        let bucket = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+        let key = caps.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+        let receipt_handle = caps.get(3).map(|m| m.as_str().to_string()).unwrap_or_default();
 
         (bucket, key, receipt_handle)
     }

@@ -4,9 +4,10 @@ use std::str::from_utf8;
 use aws_config::{BehaviorVersion, Region, meta::region::RegionProviderChain};
 use aws_sdk_s3::operation::get_object::GetObjectOutput;
 use aws_sdk_s3::operation::list_buckets::ListBucketsOutput;
+use aws_sdk_sqs::operation::delete_message::builders::DeleteMessageFluentBuilder;
 use aws_sdk_sqs::operation::list_queues::ListQueuesOutput;
 use aws_sdk_sqs::operation::receive_message::ReceiveMessageOutput;
-use aws_sdk_sqs::types::Message;
+use aws_sdk_sqs::types::{Message};
 use aws_sdk_sqs::{
     self,
     operation::{
@@ -26,22 +27,22 @@ async fn send_message_always_through_s3() -> Result<(), Box<dyn std::error::Erro
     let (node, _endpoint_url, queue_url, s3_client, sqs_client) =
         create_localstack_with_bucket_and_queue().await?;
 
-    let send_clone_sqs_client: aws_sdk_sqs::Client = sqs_client.clone();
-    let receive_clone_sqs_client: aws_sdk_sqs::Client = sqs_client.clone();
+    let send_sqs_client: aws_sdk_sqs::Client = sqs_client.clone();
+    let receive_sqs_client: aws_sdk_sqs::Client = sqs_client.clone();
     let sqs_extended_client: SqsExtendedClient =
         SqsExtendedClientBuilder::new(s3_client.clone(), sqs_client)
             .with_s3_bucket_name("sqs-extended-client-bucket".to_string())
             .with_always_through_s3(true)
             .build();
 
-    let msg_input: SendMessageFluentBuilder = send_clone_sqs_client
+    let msg_input: SendMessageFluentBuilder = send_sqs_client
         .send_message()
         .queue_url(&queue_url)
         .message_body("hello SQS! with love from the sqs-extended-client-rust 😊");
 
     sqs_extended_client.send_message(msg_input).await?;
 
-    let receive_msg: ReceiveMessageFluentBuilder = receive_clone_sqs_client
+    let receive_msg: ReceiveMessageFluentBuilder = receive_sqs_client
         .receive_message()
         .queue_url(&queue_url);
 
@@ -112,6 +113,207 @@ async fn send_message_always_through_s3() -> Result<(), Box<dyn std::error::Erro
         response,
         "hello SQS! with love from the sqs-extended-client-rust 😊"
     );
+
+    let _rm = node.rm();
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn send_receive_and_delete_small_message() -> Result<(), Box<dyn std::error::Error + 'static>> {
+    let (node, _endpoint_url, queue_url, s3_client, sqs_client) = 
+        create_localstack_with_bucket_and_queue().await?;
+
+    let send_sqs_client: aws_sdk_sqs::Client = sqs_client.clone();
+    let receive_sqs_client: aws_sdk_sqs::Client = sqs_client.clone();
+    let delete_sqs_client: aws_sdk_sqs::Client = sqs_client.clone();
+
+    let sqs_extended_client: SqsExtendedClient = SqsExtendedClientBuilder::new(s3_client.clone(), sqs_client)
+        .with_s3_bucket_name("sqs-extended-client-bucket".to_string())
+        .build();
+
+    let msg_input: SendMessageFluentBuilder = send_sqs_client
+        .send_message()
+        .queue_url(&queue_url)
+        .message_body("hello SQS! with love from the sqs-extended-client-rust 😊");
+
+    sqs_extended_client.send_message(msg_input).await?;
+
+    // Check we have a message in the queue
+    let queue_attributes_response = send_sqs_client
+        .get_queue_attributes()
+        .queue_url(&queue_url)
+        .attribute_names(aws_sdk_sqs::types::QueueAttributeName::ApproximateNumberOfMessages)
+        .send()
+        .await?;
+
+    let number_of_messages = queue_attributes_response
+        .attributes()
+        .and_then(|attrs| attrs.get(&aws_sdk_sqs::types::QueueAttributeName::ApproximateNumberOfMessages))
+        .and_then(|value| value.parse::<i32>().ok())
+        .unwrap_or(0);
+
+    assert_eq!(number_of_messages, 1);
+
+    // Check nothing is in S3
+    let list_objects_output = s3_client
+        .list_objects_v2()
+        .bucket("sqs-extended-client-bucket")
+        .send()
+        .await?;
+
+    let contents = list_objects_output.contents();
+
+    assert_eq!(contents.len(), 0);
+
+    // receive the message 
+
+    let receive_msg: ReceiveMessageFluentBuilder = receive_sqs_client
+        .receive_message()
+        .queue_url(&queue_url);
+
+    let response: ReceiveMessageOutput = sqs_extended_client.receive_message(receive_msg).await?;
+
+    let msgs: Vec<Message> = response.messages.clone().unwrap_or_default();
+
+    assert_eq!(msgs.len(), 1);
+    assert_eq!(
+        msgs[0].body.as_ref().unwrap(),
+        "hello SQS! with love from the sqs-extended-client-rust 😊"
+    );
+
+    let receipt_handle = msgs[0].receipt_handle.clone().unwrap();
+
+    // delete the message
+    let delete_message_input: DeleteMessageFluentBuilder = delete_sqs_client
+        .delete_message()
+        .queue_url(&queue_url)
+        .receipt_handle(receipt_handle);
+
+    let _delete_message_output = sqs_extended_client.delete_message(delete_message_input).await?;
+
+    // Check we don't have a message in the queue
+    let queue_attributes_response = send_sqs_client
+        .get_queue_attributes()
+        .queue_url(&queue_url)
+        .attribute_names(aws_sdk_sqs::types::QueueAttributeName::ApproximateNumberOfMessages)
+        .send()
+        .await?;
+
+    let number_of_messages = queue_attributes_response
+        .attributes()
+        .and_then(|attrs| attrs.get(&aws_sdk_sqs::types::QueueAttributeName::ApproximateNumberOfMessages))
+        .and_then(|value| value.parse::<i32>().ok())
+        .unwrap_or(0);
+
+    assert_eq!(number_of_messages, 0);
+
+    let _rm = node.rm();
+
+    Ok(())
+}
+
+
+#[tokio::test]
+async fn send_receive_and_delete_large_message() -> Result<(), Box<dyn std::error::Error + 'static>> {
+    let (node, _endpoint_url, queue_url, s3_client, sqs_client) = 
+        create_localstack_with_bucket_and_queue().await?;
+
+    let send_sqs_client: aws_sdk_sqs::Client = sqs_client.clone();
+    let receive_sqs_client: aws_sdk_sqs::Client = sqs_client.clone();
+    let delete_sqs_client: aws_sdk_sqs::Client = sqs_client.clone();
+
+    let sqs_extended_client: SqsExtendedClient = SqsExtendedClientBuilder::new(s3_client.clone(), sqs_client)
+        .with_s3_bucket_name("sqs-extended-client-bucket".to_string())
+        .with_message_size_threshold(3)
+        .build();
+
+    let msg_input: SendMessageFluentBuilder = send_sqs_client
+        .send_message()
+        .queue_url(&queue_url)
+        .message_body("hello SQS! with love from the sqs-extended-client-rust 😊");
+
+    sqs_extended_client.send_message(msg_input).await?;
+
+    // Check we have a message in the queue
+    let queue_attributes_response = send_sqs_client
+        .get_queue_attributes()
+        .queue_url(&queue_url)
+        .attribute_names(aws_sdk_sqs::types::QueueAttributeName::ApproximateNumberOfMessages)
+        .send()
+        .await?;
+
+    let number_of_messages = queue_attributes_response
+        .attributes()
+        .and_then(|attrs| attrs.get(&aws_sdk_sqs::types::QueueAttributeName::ApproximateNumberOfMessages))
+        .and_then(|value| value.parse::<i32>().ok())
+        .unwrap_or(0);
+
+    assert_eq!(number_of_messages, 1);
+
+    // Check something is in S3
+    let list_objects_output = s3_client
+        .list_objects_v2()
+        .bucket("sqs-extended-client-bucket")
+        .send()
+        .await?;
+
+    let contents = list_objects_output.contents();
+
+    assert_eq!(contents.len(), 1);
+
+    // receive the message 
+
+    let receive_msg: ReceiveMessageFluentBuilder = receive_sqs_client
+        .receive_message()
+        .queue_url(&queue_url);
+
+    let response: ReceiveMessageOutput = sqs_extended_client.receive_message(receive_msg).await?;
+
+    let msgs: Vec<Message> = response.messages.clone().unwrap_or_default();
+
+    assert_eq!(msgs.len(), 1);
+    assert_eq!(
+        msgs[0].body.as_ref().unwrap(),
+        "hello SQS! with love from the sqs-extended-client-rust 😊"
+    );
+
+    let receipt_handle = msgs[0].receipt_handle.clone().unwrap();
+
+    // delete the message
+    let delete_message_input: DeleteMessageFluentBuilder = delete_sqs_client
+        .delete_message()
+        .queue_url(&queue_url)
+        .receipt_handle(receipt_handle);
+
+    let _delete_message_output = sqs_extended_client.delete_message(delete_message_input).await?;
+
+    // Check we don't have a message in the queue
+    let queue_attributes_response = send_sqs_client
+        .get_queue_attributes()
+        .queue_url(&queue_url)
+        .attribute_names(aws_sdk_sqs::types::QueueAttributeName::ApproximateNumberOfMessages)
+        .send()
+        .await?;
+
+    let number_of_messages = queue_attributes_response
+        .attributes()
+        .and_then(|attrs| attrs.get(&aws_sdk_sqs::types::QueueAttributeName::ApproximateNumberOfMessages))
+        .and_then(|value| value.parse::<i32>().ok())
+        .unwrap_or(0);
+
+    assert_eq!(number_of_messages, 0);
+
+    // Check we don't have anything in S3
+    let list_objects_output = s3_client
+        .list_objects_v2()
+        .bucket("sqs-extended-client-bucket")
+        .send()
+        .await?;
+
+    let contents = list_objects_output.contents();
+
+    assert_eq!(contents.len(), 0);
 
     let _rm = node.rm();
 
