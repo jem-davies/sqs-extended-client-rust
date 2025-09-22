@@ -43,7 +43,7 @@ async fn main() -> Result<(), SqsExtendedClientError> {
 
     // use the SqsExtendedClientBuilder to create a SqsExtendedClient
     let sqs_extended_client: SqsExtendedClient =
-        SqsExtendedClientBuilder::new(s3_client, sqs_client.clone())
+        SqsExtendedClientBuilder::new(s3_client)
             .with_s3_bucket_name(s3_bucket_name)
             .build();
 
