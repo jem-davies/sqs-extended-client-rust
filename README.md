@@ -4,8 +4,6 @@
 ![cratesio](https://img.shields.io/crates/v/sqs-extended-client.svg)
 [![docs](https://docs.rs/sqs-extended-client/badge.svg)](https://docs.rs/sqs-extended-client/)
 
-# THIS REPO IS A WIP
-
 --------------------------------------------------------------------------------
 
 `sqs-extended-client-rust` is an extension to the Amazon SQS Client that enables
