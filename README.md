@@ -93,8 +93,8 @@ async fn main() -> Result<(), SqsExtendedClientError> {
     - change_message_visibility     ✅
 - TODOs                               
     - match -> let-else             ✅
-    - 100% error handling           ❌
-    - review rcv_msg() looping etc. ❌
+    - 100% error handling           ✅
+    - review rcv_msg() looping etc. ✅
 - UNIT TESTS
     - for private/pure fns          ✅
     - 2 small TODOs                 ✅
@@ -122,4 +122,5 @@ async fn main() -> Result<(), SqsExtendedClientError> {
 - `.to_string()` & `.clone()`
 - marshall_json -> serde
 - async handling of rcv_msg
-- msg attr names = "ALL"
+- receive message, msg attr names = "ALL" -> consider enabling 
+- rustify `parse_extended_receipt_handle`

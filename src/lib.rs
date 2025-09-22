@@ -1,4 +1,3 @@
-use core::panic;
 use std::collections::HashMap;
 use std::fmt;
 use std::str::Utf8Error;
@@ -154,7 +153,7 @@ impl SqsExtendedClient {
             return Err(SqsExtendedClientError::NoMessageBody);
         };
         let message_body: &str = msg_bdy;
-        
+
         let result: Result<SendMessageOutput, SdkError<SendMessageError, Response>> = if self
             .always_through_s3
             || self.message_exceeds_threshold(message_body, msg_input.get_message_attributes())
@@ -206,18 +205,16 @@ impl SqsExtendedClient {
         let mut sqs_response: ReceiveMessageOutput = receive_message_builder
             .message_attribute_names("All")
             .send()
-            .await?; // consider enabling specifiying input to message_attribute_names
+            .await?;
 
         let mut messages: Vec<Message> = match &sqs_response.messages {
             None => return Ok(sqs_response),
             Some(msgs) => msgs.clone(),
         };
 
-        // TODO CHECK ALL THIS 👇
         for msg in messages.iter_mut() {
             let mut found: bool = false;
 
-            // if any of the message's attributes match the reservedAttributes then found = true and break -> we know we need to 'deref'
             for rsrvd_attr in self.reserved_attributes.iter() {
                 let msg_attrs: HashMap<String, MessageAttributeValue> =
                     match &msg.message_attributes {
@@ -236,12 +233,12 @@ impl SqsExtendedClient {
             }
 
             let body: String = match &msg.body {
-                None => return Ok(sqs_response), // TODO Think about what we should do if there is no body
+                None => return Err(SqsExtendedClientError::NoMessageBody),
                 Some(b) => b.to_string(),
             };
 
             let receipt_handle: String = match &msg.receipt_handle {
-                None => return Ok(sqs_response), // TODO
+                None => return Err(SqsExtendedClientError::NoReceiptHandle),
                 Some(rh) => rh.to_string(),
             };
 
@@ -275,7 +272,7 @@ impl SqsExtendedClient {
         mut delete_message_input: DeleteMessageInput,
     ) -> Result<DeleteMessageOutput, SqsExtendedClientError> {
         let receipt_handle: String = match delete_message_input.receipt_handle {
-            None => panic!("OCEOIC"), // TODO
+            None => return Err(SqsExtendedClientError::NoReceiptHandle),
             Some(rh) => rh.to_string(),
         };
 
@@ -304,7 +301,7 @@ impl SqsExtendedClient {
         mut change_message_visibility: ChangeMessageVisibilityInput,
     ) -> Result<ChangeMessageVisibilityOutput, SqsExtendedClientError> {
         let receipt_handle: String = match change_message_visibility.receipt_handle {
-            None => panic!("OCEOIC"), // TODO
+            None => return Err(SqsExtendedClientError::NoReceiptHandle),
             Some(rh) => rh.to_string(),
         };
 
@@ -390,7 +387,6 @@ impl SqsExtendedClient {
         .to_string()
     }
 
-    // TODO: handle errors
     fn parse_extended_receipt_handle(
         &self,
         extended_receipt_handle: String,
@@ -399,6 +395,10 @@ impl SqsExtendedClient {
             .extended_receipt_handler_regex
             .captures(&extended_receipt_handle)
             .unwrap();
+
+        if caps.len() != 4 {
+            return ("".to_string(), "".to_string(), "".to_string())
+        }
 
         let bucket: String = caps.get(1).unwrap().as_str().to_string();
         let key: String = caps.get(2).unwrap().as_str().to_string();
@@ -430,7 +430,6 @@ struct S3Pointer {
 
 impl S3Pointer {
     fn marshall_json(self) -> String {
-        // TODO: maybe replace this now we have to use serde anyway...
         format!(
             "[\"{}\",{{\"s3BucketName\":\"{}\",\"s3Key\":\"{}\"}}]",
             self.class, self.s3_bucket_name, self.s3_key
@@ -480,6 +479,7 @@ pub enum SqsExtendedClientError {
     SqsReceiveMessageUnMarshallMessageBody(serde_json::Error),
     NoBucketName,
     NoMessageBody,
+    NoReceiptHandle,
 }
 
 impl fmt::Display for SqsExtendedClientError {
@@ -503,7 +503,8 @@ impl fmt::Display for SqsExtendedClientError {
                 write!(f, "Failed to marshall sqs message body: {}", err)
             }
             Self::NoBucketName => write!(f, "No bucket name configured"),
-            Self::NoMessageBody => write!(f, "No message body provided"),
+            Self::NoMessageBody => write!(f, "No message body"),
+            Self::NoReceiptHandle => write!(f, "No receipt handle"),
         }
     }
 }
