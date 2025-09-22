@@ -657,11 +657,6 @@ mod tests {
         assert_eq!("", sqs_extended_client.object_prefix);
     }
 
-    // send_message
-    // receive_message
-    // delete_message
-    // change_message_visibility
-
     #[test]
     fn test_message_exceeds_threshold() {
         // need table tests -> macros in rust apparently ...
