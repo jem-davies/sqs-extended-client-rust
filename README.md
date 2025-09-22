@@ -101,8 +101,7 @@ async fn main() -> Result<(), SqsExtendedClientError> {
 - LOCAL STACK INT. TESTS            
     - send_message                  ✅
     - receive_message               ✅
-    - delete_message                ❌
-    - change_message_visibility     ❌
+    - delete_message                ✅
     - send_and_receive_multiple     ❌
 - MVP DEV EXP. 
     - github workflow linting       ❌

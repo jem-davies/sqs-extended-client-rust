@@ -6,13 +6,12 @@ use aws_sdk_s3::operation::delete_object::DeleteObjectError;
 use aws_sdk_s3::operation::get_object::{GetObjectError, GetObjectOutput};
 use aws_sdk_s3::operation::put_object::{PutObjectError, PutObjectOutput};
 use aws_sdk_s3::primitives::ByteStreamError;
+use aws_sdk_sqs::operation::change_message_visibility::builders::ChangeMessageVisibilityFluentBuilder;
 use aws_sdk_sqs::operation::change_message_visibility::{
-    ChangeMessageVisibilityError, ChangeMessageVisibilityInput, ChangeMessageVisibilityOutput,
+    ChangeMessageVisibilityError, ChangeMessageVisibilityOutput,
 };
 use aws_sdk_sqs::operation::delete_message::builders::DeleteMessageFluentBuilder;
-use aws_sdk_sqs::operation::delete_message::{
-    DeleteMessageError, DeleteMessageOutput,
-};
+use aws_sdk_sqs::operation::delete_message::{DeleteMessageError, DeleteMessageOutput};
 use aws_sdk_sqs::operation::receive_message::builders::ReceiveMessageFluentBuilder;
 use aws_sdk_sqs::operation::receive_message::{ReceiveMessageError, ReceiveMessageOutput};
 use aws_sdk_sqs::operation::send_message::builders::SendMessageFluentBuilder;
@@ -37,7 +36,6 @@ static LEGACY_RESERVED_ATTRIBUTE_NAME: &str = "SQSLargePayloadSize";
 
 pub struct SqsExtendedClientBuilder {
     s3_client: aws_sdk_s3::Client,
-    sqs_client: aws_sdk_sqs::Client,
     bucket_name: Option<String>,
     message_size_threshold: usize,
     batch_message_size_threshold: usize,
@@ -48,13 +46,9 @@ pub struct SqsExtendedClientBuilder {
 }
 
 impl SqsExtendedClientBuilder {
-    pub fn new(
-        s3_client: aws_sdk_s3::Client,
-        sqs_client: aws_sdk_sqs::Client,
-    ) -> SqsExtendedClientBuilder {
+    pub fn new(s3_client: aws_sdk_s3::Client) -> SqsExtendedClientBuilder {
         SqsExtendedClientBuilder {
             s3_client,
-            sqs_client,
             bucket_name: None,
             message_size_threshold: MAX_MESSAGE_SIZE_IN_BYTES,
             batch_message_size_threshold: MAX_MESSAGE_SIZE_IN_BYTES,
@@ -114,7 +108,6 @@ impl SqsExtendedClientBuilder {
 
         SqsExtendedClient {
             s3_client: self.s3_client,
-            sqs_client: self.sqs_client,
             bucket_name: self.bucket_name,
             message_size_threshold: self.message_size_threshold,
             always_through_s3: self.always_s3,
@@ -130,7 +123,6 @@ impl SqsExtendedClientBuilder {
 
 pub struct SqsExtendedClient {
     s3_client: aws_sdk_s3::Client,
-    sqs_client: aws_sdk_sqs::Client,
     bucket_name: Option<String>,
     message_size_threshold: usize,
     always_through_s3: bool,
@@ -149,7 +141,7 @@ impl SqsExtendedClient {
             return Err(SqsExtendedClientError::NoBucketName);
         };
         let bucket_name: String = bn.to_string();
-        
+
         let Some(msg_bdy) = msg_input.get_message_body() else {
             return Err(SqsExtendedClientError::NoMessageBody);
         };
@@ -267,27 +259,25 @@ impl SqsExtendedClient {
         sqs_response.messages = Some(messages);
         Ok(sqs_response)
     }
-    
+
     pub async fn delete_message(
         &self,
         mut delete_message_builder: DeleteMessageFluentBuilder,
     ) -> Result<DeleteMessageOutput, SqsExtendedClientError> {
-    
         let receipt_handle: String = match delete_message_builder.get_receipt_handle() {
             None => return Err(SqsExtendedClientError::NoReceiptHandle),
             Some(rh) => rh.to_string(),
         };
-    
+
         let (bucket, key, handle) = self.parse_extended_receipt_handle(receipt_handle.clone());
-    
+
         if !bucket.is_empty() && !key.is_empty() && !handle.is_empty() {
-            delete_message_builder = delete_message_builder.set_receipt_handle(Some(handle.clone()));
+            delete_message_builder =
+                delete_message_builder.set_receipt_handle(Some(handle.clone()));
         }
-    
-        let resp: DeleteMessageOutput = delete_message_builder
-            .send()
-            .await?;
-    
+
+        let resp: DeleteMessageOutput = delete_message_builder.send().await?;
+
         if !bucket.is_empty() && !key.is_empty() {
             self.s3_client
                 .delete_object()
@@ -296,15 +286,15 @@ impl SqsExtendedClient {
                 .send()
                 .await?;
         }
-    
+
         Ok(resp)
     }
 
     pub async fn change_message_visibility(
         &self,
-        mut change_message_visibility: ChangeMessageVisibilityInput,
+        mut change_message_visibility: ChangeMessageVisibilityFluentBuilder,
     ) -> Result<ChangeMessageVisibilityOutput, SqsExtendedClientError> {
-        let receipt_handle: String = match change_message_visibility.receipt_handle {
+        let receipt_handle: String = match change_message_visibility.get_receipt_handle() {
             None => return Err(SqsExtendedClientError::NoReceiptHandle),
             Some(rh) => rh.to_string(),
         };
@@ -312,11 +302,11 @@ impl SqsExtendedClient {
         let (bucket, key, handle) = self.parse_extended_receipt_handle(receipt_handle.clone());
 
         if !bucket.is_empty() && !key.is_empty() && !handle.is_empty() {
-            change_message_visibility.receipt_handle = Some(receipt_handle);
+            change_message_visibility =
+                change_message_visibility.set_receipt_handle(Some(handle.clone()));
         }
 
-        let resp: ChangeMessageVisibilityOutput =
-            self.sqs_client.change_message_visibility().send().await?;
+        let resp: ChangeMessageVisibilityOutput = change_message_visibility.send().await?;
 
         Ok(resp)
     }
@@ -404,12 +394,21 @@ impl SqsExtendedClient {
         };
 
         if caps.len() != 4 {
-            return ("".to_string(), "".to_string(), "".to_string())
+            return ("".to_string(), "".to_string(), "".to_string());
         }
 
-        let bucket = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
-        let key = caps.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
-        let receipt_handle = caps.get(3).map(|m| m.as_str().to_string()).unwrap_or_default();
+        let bucket = caps
+            .get(1)
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_default();
+        let key = caps
+            .get(2)
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_default();
+        let receipt_handle = caps
+            .get(3)
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_default();
 
         (bucket, key, receipt_handle)
     }
@@ -612,7 +611,7 @@ mod tests {
     #[test]
     fn test_builder_fns() {
         let sqs_extended_client: SqsExtendedClient =
-            SqsExtendedClientBuilder::new(make_test_s3_client(), make_test_sqs_client())
+            SqsExtendedClientBuilder::new(make_test_s3_client())
                 .with_s3_bucket_name("bucket-name".to_string())
                 .with_message_size_threshold(9999)
                 .with_batch_message_size_threshold(1000)
@@ -637,10 +636,10 @@ mod tests {
     #[test]
     fn test_builder_defaults() {
         let sqs_extended_client: SqsExtendedClient =
-            SqsExtendedClientBuilder::new(make_test_s3_client(), make_test_sqs_client()).build();
+            SqsExtendedClientBuilder::new(make_test_s3_client()).build();
 
         let bucket_name: String = sqs_extended_client.bucket_name.unwrap_or_default();
-        
+
         assert_eq!("", bucket_name);
         assert_eq!(
             MAX_MESSAGE_SIZE_IN_BYTES,
@@ -667,7 +666,7 @@ mod tests {
     fn test_message_exceeds_threshold() {
         // need table tests -> macros in rust apparently ...
         let sqs_extended_client_small_msg_size_threshold: SqsExtendedClient =
-            SqsExtendedClientBuilder::new(make_test_s3_client(), make_test_sqs_client())
+            SqsExtendedClientBuilder::new(make_test_s3_client())
                 .with_message_size_threshold(8)
                 .build();
 
@@ -684,7 +683,7 @@ mod tests {
         assert!(result);
 
         let sqs_extended_client_default: SqsExtendedClient =
-            SqsExtendedClientBuilder::new(make_test_s3_client(), make_test_sqs_client()).build();
+            SqsExtendedClientBuilder::new(make_test_s3_client()).build();
 
         let result_2: bool = sqs_extended_client_default
             .message_exceeds_threshold(msg_body, msg.get_message_attributes());
@@ -695,7 +694,7 @@ mod tests {
     #[test]
     fn test_message_size() {
         let sqs_extended_client: SqsExtendedClient =
-            SqsExtendedClientBuilder::new(make_test_s3_client(), make_test_sqs_client()).build();
+            SqsExtendedClientBuilder::new(make_test_s3_client()).build();
 
         let msg: SendMessageFluentBuilder = make_test_sqs_client()
             .send_message()
@@ -742,7 +741,7 @@ mod tests {
     #[test]
     fn test_calc_attribute_size() {
         let sqs_extended_client: SqsExtendedClient =
-            SqsExtendedClientBuilder::new(make_test_s3_client(), make_test_sqs_client()).build();
+            SqsExtendedClientBuilder::new(make_test_s3_client()).build();
 
         let reserved_attribute = MessageAttributeValue::builder()
             .data_type(String::from("String"))
@@ -759,7 +758,7 @@ mod tests {
     #[test]
     fn test_s3_key() {
         let sqs_extended_client_no_prefix: SqsExtendedClient =
-            SqsExtendedClientBuilder::new(make_test_s3_client(), make_test_sqs_client()).build();
+            SqsExtendedClientBuilder::new(make_test_s3_client()).build();
 
         assert_eq!(
             String::from("00000000-0000-0000-0000-000000000000"),
@@ -768,7 +767,7 @@ mod tests {
         );
 
         let sqs_extended_client_with_prefix: SqsExtendedClient =
-            SqsExtendedClientBuilder::new(make_test_s3_client(), make_test_sqs_client())
+            SqsExtendedClientBuilder::new(make_test_s3_client())
                 .with_object_prefix(String::from("some_prefix"))
                 .build();
 
@@ -795,7 +794,7 @@ mod tests {
     #[test]
     fn test_parse_extended_receipt_handle() {
         let sqs_extended_client: SqsExtendedClient =
-            SqsExtendedClientBuilder::new(make_test_s3_client(), make_test_sqs_client()).build();
+            SqsExtendedClientBuilder::new(make_test_s3_client()).build();
 
         let extended_receipt_handler: String =
             "-..s3BucketName..-BUCKET-..s3BucketName..--..s3Key..-KEY-..s3Key..-HANDLE".to_string();
@@ -811,7 +810,7 @@ mod tests {
     #[test]
     fn test_marshall_json() {
         let sqs_extended_client: SqsExtendedClient =
-            SqsExtendedClientBuilder::new(make_test_s3_client(), make_test_sqs_client()).build();
+            SqsExtendedClientBuilder::new(make_test_s3_client()).build();
 
         let s3_pointer: S3Pointer = S3Pointer {
             s3_bucket_name: "BUCKET".to_string(),
@@ -838,7 +837,7 @@ mod tests {
         assert!(s3_pointer_struct.s3_key == "KEY");
         assert!(
             s3_pointer_struct.class
-                == SqsExtendedClientBuilder::new(make_test_s3_client(), make_test_sqs_client())
+                == SqsExtendedClientBuilder::new(make_test_s3_client())
                     .build()
                     .pointer_class
                     .clone()
