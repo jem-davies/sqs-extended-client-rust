@@ -102,10 +102,10 @@ async fn main() -> Result<(), SqsExtendedClientError> {
     - delete_message                ✅
     - send_and_receive_multiple     ❌
 - MVP DEV EXP. 
-    - github workflow linting       ❌
-    - github workflow tests         ❌
+    - github workflow linting       ✅
+    - github workflow tests         ✅
     - github workflow release       ❌
-    - github workflow converage     ✅ -> Doesn't work bogus line count 
+    - github workflow converage     ✅
     - docs                          ❌
     - delete main.rs -> README.md   ✅
 - UPDATE DEPS

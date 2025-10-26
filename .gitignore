@@ -29,3 +29,5 @@ todo.md
 codecov
 codecov.SHA256SUM
 codecov.SHA256SUM.sig
+lcov.info
+.DS_Store
