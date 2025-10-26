@@ -16,16 +16,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          profile: minimal
-          toolchain: stable
-          components: clippy
-          override: true
-
-      - name: Install required cargo
-        run: cargo install clippy-sarif sarif-fmt
+      - name: Install clippy
+        run: rustup component add clippy
 
       - name: Run rust-clippy
         run:
