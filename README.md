@@ -89,14 +89,14 @@ async fn main() -> Result<(), SqsExtendedClientError> {
     - receive_message               ✅
     - delete_message                ✅
     - change_message_visibility     ✅
-- TODOs                               
+- TODOs
     - match -> let-else             ✅
     - 100% error handling           ✅
     - review rcv_msg() looping etc. ✅
 - UNIT TESTS
     - for private/pure fns          ✅
     - 2 small TODOs                 ✅
-- LOCAL STACK INT. TESTS            
+- LOCAL STACK INT. TESTS
     - send_message                  ✅
     - receive_message               ✅
     - delete_message                ✅
@@ -116,9 +116,7 @@ async fn main() -> Result<(), SqsExtendedClientError> {
 ### v1.X.X
 
 - `.to_string()` & `.clone()`
-- marshall_json -> serde
 - async handling of rcv_msg
-- rustify `parse_extended_receipt_handle`
 - mocked public/non-pure fns
 
 ### v2.X.X
