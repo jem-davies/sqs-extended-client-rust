@@ -390,11 +390,11 @@ impl SqsExtendedClient {
             .captures(&extended_receipt_handle)
         {
             Some(caps) => caps,
-            None => return ("".to_string(), "".to_string(), "".to_string()),
+            None => return ("".to_string(), "".to_string(), "".to_string()), // TODO these should be options - not default values 
         };
 
         if caps.len() != 4 {
-            return ("".to_string(), "".to_string(), "".to_string());
+            return ("".to_string(), "".to_string(), "".to_string()); // TODO these should be options - not default values 
         }
 
         let bucket = caps
@@ -631,6 +631,20 @@ mod tests {
         );
         assert_eq!("pointer-class", sqs_extended_client.pointer_class);
         assert_eq!("object-prefix", sqs_extended_client.object_prefix);
+    }
+
+    #[tokio::test]
+    async fn test_send_message_no_bucket() {
+        let sqs_extended_client: SqsExtendedClient = 
+            SqsExtendedClientBuilder::new(make_test_s3_client()).build();
+
+        let msg: SendMessageFluentBuilder = make_test_sqs_client()
+            .send_message()
+            .queue_url("queue_url")
+            .message_body("hello world");
+
+            let result = sqs_extended_client.send_message(msg).await;
+            assert!(matches!(result, Err(SqsExtendedClientError::NoBucketName)));
     }
 
     #[test]
