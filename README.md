@@ -100,6 +100,7 @@ async fn main() -> Result<(), SqsExtendedClientError> {
     - send_message                  ✅
     - receive_message               ✅
     - delete_message                ✅
+    - change_message_visibility     ❌
     - send_and_receive_multiple     ❌
 - MVP DEV EXP. 
     - github workflow linting       ✅

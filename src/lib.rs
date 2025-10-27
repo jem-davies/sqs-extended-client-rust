@@ -647,6 +647,19 @@ mod tests {
             assert!(matches!(result, Err(SqsExtendedClientError::NoBucketName)));
     }
 
+    #[tokio::test]
+    async fn test_send_message_no_message_body() {
+        let sqs_extended_client: SqsExtendedClient = 
+            SqsExtendedClientBuilder::new(make_test_s3_client()).with_s3_bucket_name("bucket_name".to_string()).build();
+
+        let msg: SendMessageFluentBuilder = make_test_sqs_client()
+            .send_message()
+            .queue_url("queue_url");
+
+        let result = sqs_extended_client.send_message(msg).await;
+        assert!(matches!(result, Err(SqsExtendedClientError::NoMessageBody)))
+    }
+
     #[test]
     fn test_builder_defaults() {
         let sqs_extended_client: SqsExtendedClient =
@@ -673,7 +686,6 @@ mod tests {
 
     #[test]
     fn test_message_exceeds_threshold() {
-        // need table tests -> macros in rust apparently ...
         let sqs_extended_client_small_msg_size_threshold: SqsExtendedClient =
             SqsExtendedClientBuilder::new(make_test_s3_client())
                 .with_message_size_threshold(8)

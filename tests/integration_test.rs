@@ -329,6 +329,12 @@ async fn send_receive_and_delete_large_message() -> Result<(), Box<dyn std::erro
     Ok(())
 }
 
+#[tokio::test]
+async fn change_message_visibility() -> Result<(), Box<dyn std::error::Error + 'static>> {
+    // TODO
+    Ok(())
+}
+
 async fn create_localstack_with_bucket_and_queue() -> Result<
     (
         ContainerAsync<LocalStack>,
