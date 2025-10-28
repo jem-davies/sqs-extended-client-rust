@@ -306,7 +306,7 @@ impl SqsExtendedClient {
                 change_message_visibility.set_receipt_handle(Some(handle.clone()));
         }
 
-        let resp: ChangeMessageVisibilityOutput = change_message_visibility.send().await?;
+            let resp: ChangeMessageVisibilityOutput = change_message_visibility.send().await?;
 
         Ok(resp)
     }

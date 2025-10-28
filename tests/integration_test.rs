@@ -4,6 +4,8 @@ use std::str::from_utf8;
 use aws_config::{BehaviorVersion, Region, meta::region::RegionProviderChain};
 use aws_sdk_s3::operation::get_object::GetObjectOutput;
 use aws_sdk_s3::operation::list_buckets::ListBucketsOutput;
+use aws_sdk_sqs::operation::change_message_visibility;
+use aws_sdk_sqs::operation::change_message_visibility::builders::ChangeMessageVisibilityFluentBuilder;
 use aws_sdk_sqs::operation::delete_message::builders::DeleteMessageFluentBuilder;
 use aws_sdk_sqs::operation::list_queues::ListQueuesOutput;
 use aws_sdk_sqs::operation::receive_message::ReceiveMessageOutput;
@@ -330,8 +332,178 @@ async fn send_receive_and_delete_large_message() -> Result<(), Box<dyn std::erro
 }
 
 #[tokio::test]
-async fn change_message_visibility() -> Result<(), Box<dyn std::error::Error + 'static>> {
-    // TODO
+async fn change_message_visibility_large_message() -> Result<(), Box<dyn std::error::Error + 'static>> {
+    let (node, _endpoint_url, queue_url, s3_client, sqs_client) =
+    create_localstack_with_bucket_and_queue().await?;
+
+    let send_sqs_client: aws_sdk_sqs::Client = sqs_client.clone();
+    let receive_sqs_client: aws_sdk_sqs::Client = sqs_client.clone();
+    let cmv_sqs_client: aws_sdk_sqs::Client = sqs_client.clone();
+
+    let sqs_extended_client: SqsExtendedClient = SqsExtendedClientBuilder::new(s3_client.clone())
+        .with_s3_bucket_name("sqs-extended-client-bucket".to_string())
+        .with_message_size_threshold(3)
+        .build();
+
+    let msg_input: SendMessageFluentBuilder = send_sqs_client
+        .send_message()
+        .queue_url(&queue_url)
+        .message_body("hello SQS! with love from the sqs-extended-client-rust 😊");
+
+    sqs_extended_client.send_message(msg_input).await?;
+
+    // Check we have a message in the queue
+    let queue_attributes_response = send_sqs_client
+        .get_queue_attributes()
+        .queue_url(&queue_url)
+        .attribute_names(aws_sdk_sqs::types::QueueAttributeName::ApproximateNumberOfMessages)
+        .send()
+        .await?;
+
+    let number_of_messages = queue_attributes_response
+        .attributes()
+        .and_then(|attrs| {
+            attrs.get(&aws_sdk_sqs::types::QueueAttributeName::ApproximateNumberOfMessages)
+        })
+        .and_then(|value| value.parse::<i32>().ok())
+        .unwrap_or(0);
+
+    assert_eq!(number_of_messages, 1);
+
+    // receive the message
+
+    let receive_msg: ReceiveMessageFluentBuilder =
+        receive_sqs_client.receive_message().queue_url(&queue_url);
+
+    let response: ReceiveMessageOutput = sqs_extended_client.receive_message(receive_msg).await?;
+
+    let msgs: Vec<Message> = response.messages.clone().unwrap_or_default();
+
+    assert_eq!(msgs.len(), 1);
+    assert_eq!(
+        msgs[0].body.as_ref().unwrap(),
+        "hello SQS! with love from the sqs-extended-client-rust 😊"
+    );
+
+    let receipt_handle = msgs[0].receipt_handle.clone().unwrap();
+
+    // change message visibility 
+    let change_message_visibility: ChangeMessageVisibilityFluentBuilder = cmv_sqs_client
+        .change_message_visibility()
+        .queue_url(&queue_url)
+        .visibility_timeout(30)
+        .receipt_handle(receipt_handle);
+
+    let _foo = sqs_extended_client
+        .change_message_visibility(change_message_visibility)
+        .await?;
+
+    // Check we don't have a message in the queue
+    let queue_attributes_response = send_sqs_client
+        .get_queue_attributes()
+        .queue_url(&queue_url)
+        .attribute_names(aws_sdk_sqs::types::QueueAttributeName::ApproximateNumberOfMessages)
+        .send()
+        .await?;
+
+    let number_of_messages = queue_attributes_response
+        .attributes()
+        .and_then(|attrs| {
+            attrs.get(&aws_sdk_sqs::types::QueueAttributeName::ApproximateNumberOfMessages)
+        })
+        .and_then(|value| value.parse::<i32>().ok())
+        .unwrap_or(0);
+
+    assert_eq!(number_of_messages, 0);
+
+    Ok(())
+}
+
+
+#[tokio::test]
+async fn change_message_visibility_small_message() -> Result<(), Box<dyn std::error::Error + 'static>> {
+    let (node, _endpoint_url, queue_url, s3_client, sqs_client) =
+    create_localstack_with_bucket_and_queue().await?;
+
+    let send_sqs_client: aws_sdk_sqs::Client = sqs_client.clone();
+    let receive_sqs_client: aws_sdk_sqs::Client = sqs_client.clone();
+    let cmv_sqs_client: aws_sdk_sqs::Client = sqs_client.clone();
+
+    let sqs_extended_client: SqsExtendedClient = SqsExtendedClientBuilder::new(s3_client.clone())
+        .with_s3_bucket_name("sqs-extended-client-bucket".to_string())
+        .build();
+
+    let msg_input: SendMessageFluentBuilder = send_sqs_client
+        .send_message()
+        .queue_url(&queue_url)
+        .message_body("hello SQS! with love from the sqs-extended-client-rust 😊");
+
+    sqs_extended_client.send_message(msg_input).await?;
+
+    // Check we have a message in the queue
+    let queue_attributes_response = send_sqs_client
+        .get_queue_attributes()
+        .queue_url(&queue_url)
+        .attribute_names(aws_sdk_sqs::types::QueueAttributeName::ApproximateNumberOfMessages)
+        .send()
+        .await?;
+
+    let number_of_messages = queue_attributes_response
+        .attributes()
+        .and_then(|attrs| {
+            attrs.get(&aws_sdk_sqs::types::QueueAttributeName::ApproximateNumberOfMessages)
+        })
+        .and_then(|value| value.parse::<i32>().ok())
+        .unwrap_or(0);
+
+    assert_eq!(number_of_messages, 1);
+
+    // receive the message
+
+    let receive_msg: ReceiveMessageFluentBuilder =
+        receive_sqs_client.receive_message().queue_url(&queue_url);
+
+    let response: ReceiveMessageOutput = sqs_extended_client.receive_message(receive_msg).await?;
+
+    let msgs: Vec<Message> = response.messages.clone().unwrap_or_default();
+
+    assert_eq!(msgs.len(), 1);
+    assert_eq!(
+        msgs[0].body.as_ref().unwrap(),
+        "hello SQS! with love from the sqs-extended-client-rust 😊"
+    );
+
+    let receipt_handle = msgs[0].receipt_handle.clone().unwrap();
+
+    // change message visibility 
+    let change_message_visibility: ChangeMessageVisibilityFluentBuilder = cmv_sqs_client
+        .change_message_visibility()
+        .queue_url(&queue_url)
+        .visibility_timeout(30)
+        .receipt_handle(receipt_handle);
+
+    let _foo = sqs_extended_client
+        .change_message_visibility(change_message_visibility)
+        .await?;
+
+    // Check we don't have a message in the queue
+    let queue_attributes_response = send_sqs_client
+        .get_queue_attributes()
+        .queue_url(&queue_url)
+        .attribute_names(aws_sdk_sqs::types::QueueAttributeName::ApproximateNumberOfMessages)
+        .send()
+        .await?;
+
+    let number_of_messages = queue_attributes_response
+        .attributes()
+        .and_then(|attrs| {
+            attrs.get(&aws_sdk_sqs::types::QueueAttributeName::ApproximateNumberOfMessages)
+        })
+        .and_then(|value| value.parse::<i32>().ok())
+        .unwrap_or(0);
+
+    assert_eq!(number_of_messages, 0);
+
     Ok(())
 }
 
